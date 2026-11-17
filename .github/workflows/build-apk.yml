@@ -12,6 +12,8 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      RESONANCE_DEBUG_KEYSTORE: ${{ github.workspace }}/.ci-signing/debug.keystore
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -46,10 +48,26 @@ jobs:
       - name: Restore persistent debug signing key
         uses: actions/cache@v4
         with:
-          path: ~/.android/debug.keystore
-          key: resonance-debug-keystore-v1
+          path: ${{ env.RESONANCE_DEBUG_KEYSTORE }}
+          key: resonance-debug-keystore-v2
+      - name: Prepare persistent debug signing key
+        shell: bash
+        run: |
+          mkdir -p "$(dirname "$RESONANCE_DEBUG_KEYSTORE")"
+          if [ ! -s "$RESONANCE_DEBUG_KEYSTORE" ]; then
+            keytool -genkeypair -keystore "$RESONANCE_DEBUG_KEYSTORE" \
+              -storetype JKS -storepass android -keypass android \
+              -alias androiddebugkey -keyalg RSA -keysize 2048 \
+              -validity 10000 -dname "CN=Android Debug,O=Android,C=US" -noprompt
+          fi
       - name: Test, lint and assemble Android
-        run: gradle --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+        run: |
+          gradle --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk Resonance-latest-debug.apk
+      - name: Build side-by-side preview without replacing installed data
+        run: |
+          gradle --no-daemon :app:assembleDebug -PresonancePreview=true
+          cp app/build/outputs/apk/debug/app-debug.apk Resonance-preview-debug.apk
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -62,13 +80,14 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Resonance-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            Resonance-latest-debug.apk
+            Resonance-preview-debug.apk
           if-no-files-found: error
 
       - name: Publish direct-download APK
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk Resonance-latest-debug.apk
           gh release view latest-test >/dev/null 2>&1 || gh release create latest-test --title "Resonance 最新测试版" --notes "自动构建的测试 APK。注意：GitHub Actions 默认调试签名可能改变，覆盖安装如提示签名不匹配，请先备份数据，勿直接卸载。"
-          gh release upload latest-test Resonance-latest-debug.apk --clobber
+          gh release upload latest-test Resonance-latest-debug.apk Resonance-preview-debug.apk --clobber

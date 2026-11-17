@@ -3,17 +3,31 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+val previewBuild = providers.gradleProperty("resonancePreview").map { it.toBoolean() }.getOrElse(false)
+val cloudDebugKeystore = providers.environmentVariable("RESONANCE_DEBUG_KEYSTORE").orNull
 android {
     namespace = "com.resonance.app"
     compileSdk = 35
     defaultConfig {
-        applicationId = "com.resonance.app"
+        applicationId = if (previewBuild) "com.resonance.app.preview" else "com.resonance.app"
+        manifestPlaceholders["appLabel"] = if (previewBuild) "Resonance 预览版" else "Resonance"
+        manifestPlaceholders["listenerLabel"] = if (previewBuild) "Resonance 预览版媒体监听" else "Resonance 媒体监听"
         minSdk = 26
         targetSdk = 35
         versionCode = 8
         versionName = "0.6.2"
     }
     buildTypes { release { isMinifyEnabled = false } }
+    signingConfigs {
+        getByName("debug") {
+            if (cloudDebugKeystore != null) {
+                storeFile = file(cloudDebugKeystore)
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

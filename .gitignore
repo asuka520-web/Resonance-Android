@@ -9,6 +9,7 @@ local.properties
 .idea/
 .cxx/
 .externalNativeBuild/
+.ci-signing/
 
 # Windows companion local runtime and portable libraries
 __pycache__/

@@ -61,6 +61,13 @@ does not replace Android notification-permission and background-service tests.
 
 ## APK
 
+For existing installations signed by the old cloud workflow, use
+[the side-by-side preview APK](https://github.com/asuka520-web/Resonance-Android/releases/download/latest-test/Resonance-preview-debug.apk)
+to test without uninstalling the old app. It is labelled **Resonance 预览版**,
+has separate data, and needs its own notification access. Old history is not
+automatically migrated. The workflow now explicitly signs with a cached key;
+the old workflow's nonexistent cache path did not preserve its generated keys.
+
 [Latest test APK release](https://github.com/asuka520-web/Resonance-Android/releases/tag/latest-test)
 
 GitHub Actions assembles the debug APK on pushes to `main`. The latest test release is updated after a successful build. Check [Actions](https://github.com/asuka520-web/Resonance-Android/actions) if the release has not updated yet.
