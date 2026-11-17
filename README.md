@@ -2,6 +2,12 @@
 
 A local-first QQ Music companion prototype, written in Kotlin + Jetpack Compose.
 
+**Development direction, 2026-11-17:** the user chose QQ Music account login and
+playback **inside Resonance**. The next acceptance gate is one real account ->
+real playlist/catalogue -> one track actually playing on Android. The released
+v0.7.0 remains the legacy companion; an account player is not yet implemented.
+See [the verified findings and next gate](docs/ACCOUNT_PLAYER_DIRECTION.md).
+
 ## v0.7.0: phone recommendations and target-play trial
 
 - Explicit MusicBrainz queries retrieve **recording-level genres** after the user checks the exact version. Missing genres stay unknown. Only selected name/artist or public recording UUID are sent; no history or lyrics are uploaded.

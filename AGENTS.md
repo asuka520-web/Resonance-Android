@@ -2,6 +2,14 @@
 
 ## Project purpose
 
+On 2026-11-17 the user explicitly chose **QQ Music account login and playback
+inside Resonance, similar to MineRadio**. This supersedes the original external
+QQ Music companion architecture. Android remains the product; PC is a test
+workbench. Read `docs/ACCOUNT_PLAYER_DIRECTION.md` before further feature work.
+The next gate is real login -> catalogue/playlist -> one actual track playing
+inside Resonance. Do not expand genre editors or external-session controls
+before this gate, and do not substitute UI mocks or test music for QQ playback.
+
 Core requirements and acceptance gates: `docs/PRODUCT_REQUIREMENTS.md`.
 The main outcomes are skip-triggered style switching and current-intent similar
 song recommendations on Android. Artist statistics, local scores, PC tools and
@@ -45,7 +53,13 @@ notification-service lifecycle. See `docs/TESTING_STRATEGY.md`.
    v0.6.2 may cache this narrowly parsed format after stable observations, under
    `qq-session-artist` provenance in `resonance_auto_song_info`. Preserve manual
    and legacy labels first; ambiguous or changing fields must not auto-commit.
-4. Do not integrate undocumented, unauthorized, brittle QQ Music endpoints or scrape private APIs. A lookup source must be documented, permitted, and tested before use.
+4. Identify the origin, access requirements and limitations of every QQ provider.
+   Official SDK routes and third-party integrations must be labelled separately.
+   MineRadio's open-source implementation may be inspected as a reference, not
+   treated as an official mobile SDK or proof of current compatibility. Keep any
+   third-party provider isolated and verify actual user-account catalogue and
+   playback results. Do not bypass account authorization, membership, paywalls
+   or protected content. Do not copy third-party code without its license terms.
 5. Never claim recommendation or automatic playback works until an actual supported catalogue/search/playback integration is implemented and tested.
 
 ## Preserve existing user data
@@ -72,6 +86,16 @@ notification-service lifecycle. See `docs/TESTING_STRATEGY.md`.
   upload listening history or infer track genres from artist genres/free tags.
 - Preserve `resonance_track_features` provenance and verified recording mapping.
   A changed song name, artist or album invalidates the old feature mapping.
+- MusicBrainz is supplementary in the new product. Automatic lookup work is
+  preserved locally in `wip/automatic-genre-lookup`, not published. Do not merge
+  it as the next main milestone or make manual genre confirmation a prerequisite
+  to normal listening.
+- Notification-session MEDIA_ID rules apply to the retained legacy observer.
+  New catalogue song IDs/MIDs have their own provider namespace; never equate
+  them to observed legacy IDs without an explicit verified mapping.
+- Account login, readable playlists, usable playback authorization and actual
+  player progress are separate states. Account cookies/keys must remain local
+  and must never enter logs, exports, Git or GitHub Actions.
 - All listening history and confirmed song metadata remain local unless the user explicitly opts into a future sync feature.
 
 ## Implementation quality
