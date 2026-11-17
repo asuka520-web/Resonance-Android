@@ -17,7 +17,7 @@ Resonance is a local-first Android companion for QQ Music. It observes QQ Music'
 - compileSdk / target SDK: 35
 - minSdk: 26
 - Main module: `:app`
-- Build: `gradle --no-daemon :app:assembleDebug` (or `.\gradlew.bat :app:assembleDebug` after a Gradle wrapper has been generated and committed)
+- Build (Windows): `.\gradlew.bat :app:assembleDebug`\n- Build (macOS/Linux): `./gradlew :app:assembleDebug`
 - APK output: `app/build/outputs/apk/debug/app-debug.apk`
 
 ## Non-negotiable data correctness rules
