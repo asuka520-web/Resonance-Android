@@ -1,144 +1,259 @@
 package com.resonance.app
 
-import android.content.ComponentName
-import android.content.Intent
 import android.content.Context
-import org.json.JSONArray
-import org.json.JSONObject
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import org.json.JSONArray
+import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
+            val context = this@MainActivity
             val settings = remember { getSharedPreferences("resonance_settings", Context.MODE_PRIVATE) }
-            var auto by remember { mutableStateOf(settings.getBoolean("auto", false)) }
-            var title by remember { mutableStateOf("等待 QQ 音乐播放") }
-            var skips by remember { mutableIntStateOf(0) }
-            var analysis by remember { mutableStateOf("尚未触发分析") }
-            var fast by remember { mutableIntStateOf(0) }
-            var partial by remember { mutableIntStateOf(0) }
-            var completed by remember { mutableIntStateOf(0) }
-            var customName by remember { mutableStateOf("") }
-            var labelsVersion by remember { mutableIntStateOf(0) }
-            var historyVersion by remember { mutableIntStateOf(0) }
-            var showHistory by remember { mutableStateOf(false) }
-            var showProfile by remember { mutableStateOf(false) }
+            val legacyLabels = remember { getSharedPreferences("resonance_song_labels", Context.MODE_PRIVATE) }
             val historyPrefs = remember { getSharedPreferences("resonance_history", Context.MODE_PRIVATE) }
-            val history = remember(historyVersion, fast, partial, completed) { try { JSONArray(historyPrefs.getString("events", "[]")) } catch (_: Exception) { JSONArray() } }
-            val total = fast + partial + completed
-            val completionPercent = if (total == 0) 0 else completed * 100 / total
-            val songStats = remember(historyVersion, fast, partial, completed) {
-                val result = linkedMapOf<String, IntArray>()
-                for (i in 0 until history.length()) {
-                    val e = history.optJSONObject(i) ?: continue
-                    val id = e.optString("mediaId")
-                    if (id.isBlank()) continue
-                    val counts = result.getOrPut(id) { intArrayOf(0, 0, 0) }
-                    when (e.optString("category")) {
-                        "fast" -> counts[0]++
-                        "partial" -> counts[1]++
-                        "completed" -> counts[2]++
-                    }
-                }
-                result
+
+            var automaticMode by remember { mutableStateOf(settings.getBoolean("auto", false)) }
+            var snapshot by remember { mutableStateOf(MusicSnapshot("等待 QQ 音乐播放", 0, "等待歌曲切换")) }
+            var editedName by remember { mutableStateOf("") }
+            var editedArtist by remember { mutableStateOf("") }
+            var editedAlbum by remember { mutableStateOf("") }
+            var savedRevision by remember { mutableIntStateOf(0) }
+            var historyRevision by remember { mutableIntStateOf(0) }
+            var showDiagnostics by remember { mutableStateOf(false) }
+            var showProfile by remember { mutableStateOf(false) }
+            var showHistory by remember { mutableStateOf(false) }
+
+            val diagnostics = snapshot.diagnostics
+            val currentId = diagnostics.mediaId.ifBlank {
+                if (snapshot.title.startsWith("媒体 ID：")) snapshot.title.removePrefix("媒体 ID：") else ""
             }
-            val prefs = remember { getSharedPreferences("resonance_song_labels", Context.MODE_PRIVATE) }
-            val currentId = title.removePrefix("媒体 ID：").takeIf { title.startsWith("媒体 ID：") }
-            val mappedName = remember(currentId, labelsVersion) { currentId?.let { prefs.getString(it, null) } }
+            val info = remember(currentId, savedRevision) {
+                if (currentId.isBlank()) null else SongInfoStore.get(context, currentId)
+            }
+            val history = remember(historyRevision, snapshot.fast, snapshot.partial, snapshot.completed) {
+                try { JSONArray(historyPrefs.getString("events", "[]")) } catch (_: Exception) { JSONArray() }
+            }
+            val recent = remember(history) { ListeningInsights.fromEvents(history, 20) }
+            val longTerm = remember(history) { ListeningInsights.fromEvents(history, 500) }
+
+            LaunchedEffect(currentId, savedRevision) {
+                editedName = info?.name.orEmpty()
+                editedArtist = info?.artist.orEmpty()
+                editedAlbum = info?.album.orEmpty()
+            }
+            LaunchedEffect(automaticMode) { MusicState.autoMode = automaticMode }
             DisposableEffect(Unit) {
-                val listener: (MusicSnapshot) -> Unit = { snapshot ->
-                    title = snapshot.title
-                    skips = snapshot.skips
-                    analysis = snapshot.analysis
-                    fast = snapshot.fast
-                    partial = snapshot.partial
-                    completed = snapshot.completed
-                }
+                val listener: (MusicSnapshot) -> Unit = { snapshot = it }
                 MusicState.subscribe(listener)
                 onDispose { MusicState.unsubscribe(listener) }
             }
+
             MaterialTheme {
-                Scaffold(topBar = { Text("Resonance · 共鸣", modifier = Modifier.padding(20.dp), style = MaterialTheme.typography.headlineSmall) }) { inner ->
-                    Column(Modifier.padding(inner).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                        Text("当前歌曲：${mappedName ?: title}")
-                        if (currentId != null) {
-                            Text("稳定歌曲 ID：$currentId", style = MaterialTheme.typography.bodySmall)
-                            OutlinedTextField(value = customName, onValueChange = { customName = it }, label = { Text("为这首歌标注名称（可选）") }, singleLine = true)
-                            Button(enabled = customName.isNotBlank(), onClick = {
-                                prefs.edit().putString(currentId, customName.trim()).apply()
-                                labelsVersion++
-                                customName = ""
-                            }) { Text("保存歌曲名称") }
-                            Text("名称只保存在本机；不读取歌词，也不上传听歌记录。", style = MaterialTheme.typography.bodySmall)
+                Scaffold(topBar = {
+                    Text(
+                        "Resonance · 共鸣 v0.6",
+                        style = MaterialTheme.typography.headlineSmall,
+                        modifier = Modifier.padding(20.dp)
+                    )
+                }) { inner ->
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(inner)
+                            .verticalScroll(rememberScrollState()).padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Text("当前歌曲", style = MaterialTheme.typography.titleMedium)
+                        Text(info?.name ?: snapshot.title, style = MaterialTheme.typography.titleLarge)
+                        if (currentId.isNotBlank()) {
+                            Text("稳定媒体 ID：" + currentId, style = MaterialTheme.typography.bodySmall)
+                            if (info != null) {
+                                Text("已确认信息：" + info.name +
+                                    (if (info.artist.isNotBlank()) " — " + info.artist else "") +
+                                    (if (info.album.isNotBlank()) " · " + info.album else ""))
+                            } else {
+                                Text("未有经过确认的歌名；不会使用可能是歌词的 TITLE 自动填充。")
+                            }
+                            OutlinedTextField(
+                                value = editedName, onValueChange = { editedName = it },
+                                label = { Text("歌曲名称（请核实）") }, singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedTextField(
+                                value = editedArtist, onValueChange = { editedArtist = it },
+                                label = { Text("歌手（可选）") }, singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedTextField(
+                                value = editedAlbum, onValueChange = { editedAlbum = it },
+                                label = { Text("专辑（可选）") }, singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Button(
+                                enabled = editedName.isNotBlank(),
+                                onClick = {
+                                    SongInfoStore.saveConfirmed(
+                                        context, currentId, editedName, editedArtist, editedAlbum
+                                    )
+                                    savedRevision++
+                                }
+                            ) { Text("确认并保存歌曲信息") }
                         }
-                        Text("连续快速跳过：$skips / 4")
-                        Text("本地历史：快速跳过 $fast · 中途切歌 $partial · 基本听完 $completed")
-                        Text("累计 $total 次行为 · 基本听完率 $completionPercent%")
-                        Button(onClick = { showProfile = !showProfile }) { Text(if (showProfile) "收起单曲偏好分析" else "查看单曲偏好分析") }
+
+                        HorizontalDivider()
+                        Button(onClick = { showDiagnostics = !showDiagnostics }) {
+                            Text(if (showDiagnostics) "收起媒体元数据诊断" else "查看媒体元数据诊断")
+                        }
+                        if (showDiagnostics) {
+                            Text("当前会话的只读字段，供判断 QQ 音乐能否提供真实歌名。")
+                            Text("MEDIA_ID：" + diagnostics.mediaId)
+                            Text("TITLE（可能是动态歌词）：" + diagnostics.rawTitle)
+                            Text("DISPLAY_TITLE（未验证）：" + diagnostics.displayTitle)
+                            Text("ARTIST：" + diagnostics.artist)
+                            Text("ALBUM：" + diagnostics.album)
+                            Text("DISPLAY_SUBTITLE：" + diagnostics.subtitle)
+                            Text("DISPLAY_DESCRIPTION：" + diagnostics.description)
+                            Text("播放进度：" + (diagnostics.positionMs.coerceAtLeast(0L) / 1000L) +
+                                " 秒 / " + (diagnostics.durationMs / 1000L) + " 秒")
+                            Text("播放状态：" + if (diagnostics.playing) "播放中" else "暂停或未知")
+                            Text("同一 ID 内 TITLE 发生过变化：" +
+                                if (diagnostics.titleChangedWithinId) "是" else "尚未观察到")
+                            Text("同一 ID 内 DISPLAY_TITLE 发生过变化：" +
+                                if (diagnostics.displayTitleChangedWithinId) "是" else "尚未观察到")
+                            if (currentId.isNotBlank() && diagnostics.displayTitle.isNotBlank()) {
+                                OutlinedButton(onClick = { editedName = diagnostics.displayTitle }) {
+                                    Text("将 DISPLAY_TITLE 填入编辑框（需人工核实）")
+                                }
+                            }
+                            Text(
+                                "诊断信息仅在当前运行期间显示；不会自动认定歌曲名称，也不会把歌词写入歌曲缓存。",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+
+                        HorizontalDivider()
+                        Text("连续快速跳过：" + snapshot.skips + " / 4")
+                        Text("最近记录累计：快速跳过 " + snapshot.fast + " · 中途切歌 " +
+                            snapshot.partial + " · 基本听完 " + snapshot.completed)
+                        Text("检测信息：" + snapshot.analysis)
+                        Text("基本听完率（最多 500 条）：" + longTerm.completionPercent + "%")
+                        LinearProgressIndicator(
+                            progress = { longTerm.completionPercent / 100f },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Button(onClick = { showProfile = !showProfile; historyRevision++ }) {
+                            Text(if (showProfile) "收起偏好分析" else "查看短期 / 长期偏好分析")
+                        }
                         if (showProfile) {
-                            Text("评分规则：基本听完 +2，快速跳过 -3，中途切歌 -1；仅供初步参考。")
-                            val ranked = songStats.map { (id, counts) ->
-                                Triple(id, counts[2] * 2 - counts[0] * 3 - counts[1], counts)
+                            ProfileSection("短期偏好 · 最近最多 20 条", recent) { id ->
+                                SongInfoStore.get(context, id)?.name ?: id
                             }
-                            if (ranked.isEmpty()) Text("暂无足够数据")
-                            else {
-                                Text("偏好较高的歌曲")
-                                ranked.sortedByDescending { it.second }.take(5).forEach { item ->
-                                    Text((prefs.getString(item.first, null) ?: item.first) + " · " + item.second + "分 · " + item.third.sum() + "次")
-                                }
-                                Text("偏好较低的歌曲")
-                                ranked.sortedBy { it.second }.take(5).forEach { item ->
-                                    Text((prefs.getString(item.first, null) ?: item.first) + " · " + item.second + "分 · " + item.third.sum() + "次")
-                                }
-                                Text("以上是单曲行为分析，不代表曲风或情绪判断。")
+                            ProfileSection("长期偏好 · 最近最多 500 条", longTerm) { id ->
+                                SongInfoStore.get(context, id)?.name ?: id
                             }
+                            Text("这是单曲行为画像，不是已识别曲风，也没有连接推荐曲库。")
                         }
-                        LinearProgressIndicator(progress = { completionPercent / 100f }, modifier = Modifier.fillMaxWidth())
-                        Button(onClick = { showHistory = !showHistory; historyVersion++ }) { Text(if (showHistory) "收起最近记录" else "查看最近 10 条记录") }
+
+                        Button(onClick = { showHistory = !showHistory; historyRevision++ }) {
+                            Text(if (showHistory) "收起最近记录" else "查看最近 10 条记录")
+                        }
                         if (showHistory) {
+                            if (history.length() == 0) Text("暂无历史记录")
                             for (i in history.length() - 1 downTo maxOf(0, history.length() - 10)) {
                                 val item = history.optJSONObject(i) ?: continue
-                                val mediaId = item.optString("mediaId")
-                                val label = prefs.getString(mediaId, null) ?: mediaId
-                                val category = when (item.optString("category")) { "fast" -> "快速跳过"; "partial" -> "中途切歌"; else -> "基本听完" }
-                                Text("$label · $category · ${item.optLong("playedMs") / 1000}秒")
+                                val id = item.optString("mediaId")
+                                val songName = SongInfoStore.get(context, id)?.name ?: id
+                                val category = when (item.optString("category")) {
+                                    "fast" -> "快速跳过"
+                                    "partial" -> "中途切歌"
+                                    else -> "基本听完"
+                                }
+                                Text(songName + " · " + category + " · " +
+                                    (item.optLong("playedMs") / 1000L) + " 秒")
                             }
                         }
+
                         Button(onClick = {
                             val labels = JSONObject()
-                            prefs.all.forEach { (id, value) -> if (value is String) labels.put(id, value) }
-                            val export = JSONObject().put("schemaVersion", 2).put("events", history)
-                                .put("songLabels", labels).put("exportedAt", System.currentTimeMillis()).toString(2)
-                            val intent = Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_TEXT, export)
-                            startActivity(Intent.createChooser(intent, "导出 Resonance 行为记录"))
-                        }) { Text("分享 / 导出历史 JSON") }
-                        Text("判断规则：15 秒内快速跳过；未达 70% 为中途切歌；达到 70% 视为基本听完。")
-                        Text("分析结果：$analysis")
-                        Text("陌生歌曲探索：30%（曲库接口待验证）")
+                            legacyLabels.all.forEach { (id, value) ->
+                                if (value is String) labels.put(id, value)
+                            }
+                            val exported = JSONObject()
+                                .put("schemaVersion", 3)
+                                .put("events", history)
+                                .put("songLabels", labels)
+                                .put("songInfo", SongInfoStore.exportJson(context))
+                                .put("exportedAt", System.currentTimeMillis())
+                                .toString(2)
+                            val send = Intent(Intent.ACTION_SEND)
+                                .setType("application/json").putExtra(Intent.EXTRA_TEXT, exported)
+                            startActivity(Intent.createChooser(send, "导出 Resonance 本地记录"))
+                        }) { Text("分享 / 导出听歌记录 JSON") }
+
+                        HorizontalDivider()
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text("自动模式")
-                            Switch(checked = auto, onCheckedChange = { auto = it; MusicState.autoMode = it; settings.edit().putBoolean("auto", it).apply() })
+                            Switch(checked = automaticMode, onCheckedChange = {
+                                automaticMode = it
+                                settings.edit().putBoolean("auto", it).apply()
+                            })
                         }
-                        Text(if (auto) "自动模式：仅分析，暂不主动替换 QQ 音乐队列" else "推荐模式：仅分析，不干预播放")
-                        Button(onClick = {
+                        Text(
+                            if (automaticMode) "自动模式：只分析行为，尚不会控制 QQ 音乐播放"
+                            else "推荐模式：只分析行为，暂不干预播放"
+                        )
+                        Text("陌生歌曲探索：目标为 30%，尚未接入真实推荐接口。")
+                        OutlinedButton(onClick = {
                             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                        }) { Text("授予通知读取权限") }
-                        Text("需要在系统设置中允许 Resonance 通知访问，然后打开 QQ 音乐播放歌曲。")
-                        Text("QQ 音乐的收藏列表、相似歌曲搜索及指定歌曲播放尚未接入。")
+                        }) { Text("查看通知读取权限") }
+                        Text(
+                            "继续保留 v0.5 已验证的后台监听、行为记录和手动标注。没有上传听歌历史的操作。",
+                            style = MaterialTheme.typography.bodySmall
+                        )
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ProfileSection(
+    title: String,
+    profile: BehaviorProfile,
+    resolveName: (String) -> String
+) {
+    Text(title, fontWeight = FontWeight.Bold)
+    Text("样本：" + profile.total + " 条 · 快跳 " + profile.fast +
+        " · 中途 " + profile.partial + " · 基本听完 " + profile.completed +
+        " · 听完率 " + profile.completionPercent + "%")
+    if (profile.total < 5) {
+        Text("样本不足（少于 5 条），不宜据此判断喜好。")
+    }
+    if (profile.scores.isNotEmpty()) {
+        Text("分数较高的歌曲")
+        profile.scores.sortedByDescending { it.score }.take(5).forEach { score ->
+            Text(resolveName(score.mediaId) + " · " + score.score +
+                " 分 · " + score.eventCount + " 次")
+        }
+        Text("分数较低的歌曲")
+        profile.scores.sortedBy { it.score }.take(5).forEach { score ->
+            Text(resolveName(score.mediaId) + " · " + score.score +
+                " 分 · " + score.eventCount + " 次")
+        }
+    }
+    Text("评分：基本听完 +2，中途切歌 -1，快速跳过 -3。")
 }
