@@ -72,6 +72,8 @@ class QqAccountActivity : ComponentActivity() {
         val previous=QqLibrary.signals().asReversed().firstNotNullOfOrNull {event ->
             if(event.mediaId==current)null else QqLibrary.track(event.mediaId.removePrefix("qq:"))}
         if(previous==null){active.seekTo(0);QqLibrary.notice("已经是队列第一首，已回到开头。");return}
+        val existing=(0 until active.mediaItemCount).firstOrNull {active.getMediaItemAt(it).mediaId=="qq:${previous.mid}"}
+        if(existing!=null){active.seekTo(existing,0);return}
         val item=if(active.currentMediaItem?.mediaMetadata?.extras?.getBoolean(CatalogueMediaItems.FIXED_QUEUE)==true)
             CatalogueMediaItems.recommendationItem(previous) else CatalogueMediaItems.item(previous)
         active.addMediaItem(0,item);active.seekTo(0,0)
@@ -142,7 +144,7 @@ class QqAccountActivity : ComponentActivity() {
                     val range=PlaybackRange.parse(name)
                     getSharedPreferences("resonance_settings",MODE_PRIVATE).edit().putString("qq_playback_range",range.name).apply()
                     PlaybackStateBus.publish(PlaybackStateBus.value.copy(playbackRange=range.name))
-                },onClearScores=QqLibrary::clearScores)
+                },onClearScores=QqLibrary::clearScores,onSongFeedback=QqLibrary::songFeedback)
             if (showLogin) ResonanceTheme {
                 ModalBottomSheet(onDismissRequest = { closeLogin() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
                     modifier = Modifier.fillMaxHeight(.96f)) {

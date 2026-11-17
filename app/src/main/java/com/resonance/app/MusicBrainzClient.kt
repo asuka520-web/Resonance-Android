@@ -81,6 +81,11 @@ object MusicBrainzClient {
         require(MusicBrainzJson.validId(id))
         MusicBrainzJson.genres(request("recording/$id?inc=genres&fmt=json"), id)
     }
+    suspend fun recordingSupplement(id:String):SupplementaryGenres=withContext(Dispatchers.IO) {
+        require(MusicBrainzJson.validId(id))
+        val raw=request("recording/$id?inc=genres+tags&fmt=json")
+        SupplementaryGenres(MusicBrainzJson.genres(raw,id),id,descriptors=RecordingDescriptors.parse(raw,id))
+    }
 
     @Synchronized private fun request(path: String): String {
         // Start-to-start spacing and one in-flight request satisfy MusicBrainz's public API limit.
@@ -92,7 +97,7 @@ object MusicBrainzClient {
             connection.connectTimeout = 12_000
             connection.readTimeout = 12_000
             connection.instanceFollowRedirects = false
-            connection.setRequestProperty("User-Agent", "Resonance/0.14.0 (https://github.com/asuka520-web/Resonance-Android)")
+            connection.setRequestProperty("User-Agent", "Resonance/0.15.0 (https://github.com/asuka520-web/Resonance-Android)")
             connection.setRequestProperty("Accept", "application/json")
             if (connection.responseCode != 200) throw IOException("曲库服务返回 ${connection.responseCode}，请稍后再试")
             return connection.inputStream.use { stream ->

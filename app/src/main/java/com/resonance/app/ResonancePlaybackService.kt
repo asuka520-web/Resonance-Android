@@ -24,6 +24,7 @@ import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.ShuffleOrder
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.google.common.util.concurrent.Futures
@@ -93,6 +94,25 @@ class ResonancePlaybackService : MediaSessionService() {
     private lateinit var listeningTime:ListeningTimeCounter
     private var lastTimeSave=0L
     private var scoreEpoch=0L
+    private val preferenceShuffle=PreferenceShuffle()
+    private var shuffleKey:Any?=null
+    private var previousRequested=false
+    private fun refreshPreferenceShuffle() {
+        if(!player.shuffleModeEnabled || player.mediaItemCount==0){shuffleKey=null;return}
+        val mids=(0 until player.mediaItemCount).map {player.getMediaItemAt(it).mediaId.removePrefix("qq:")}
+        val current=player.currentMediaItem?.mediaId.orEmpty().removePrefix("qq:")
+        val scores=QqLibrary.state.genreScores().associate {it.label to it.combined}
+        val weights=mids.associateWith {mid->
+            val labels=QqLibrary.state.genres[mid]?.labels.orEmpty()
+            if(labels.isEmpty())0.0 else labels.sumOf {scores[it]?:0.0}/labels.size
+        }
+        val key=listOf(mids,weights,QqLibrary.state.scoreEpoch,preferenceShuffle.generation)
+        if(key==shuffleKey)return
+        val ordered=preferenceShuffle.reorder(mids,current,weights)
+        val indices=mids.withIndex().associate {it.value to it.index}
+        player.setShuffleOrder(ShuffleOrder.DefaultShuffleOrder(ordered.map {indices.getValue(it)}.toIntArray(),System.nanoTime()))
+        shuffleKey=key
+    }
     private fun tickListeningTime(playing:Boolean,forceSave:Boolean=false) {
         val now=SystemClock.elapsedRealtime()
         listeningTime.tick(now,playing)
@@ -141,6 +161,7 @@ class ResonancePlaybackService : MediaSessionService() {
             val mid = player.currentMediaItem?.mediaId.orEmpty().removePrefix("qq:")
             applyScoreReset()
             if(lastRange!=selectedRange() || lastIntent!=QqLibrary.state.intent)adjustRangeQueue()
+            refreshPreferenceShuffle()
             val confirmation=noticeGate.observe(mid,player.isPlaying,player.currentPosition,excerpt,SystemClock.elapsedRealtime())
             if(confirmation!=null) {
                 val title=QqLibrary.track(mid)?.name.orEmpty()
@@ -187,10 +208,12 @@ class ResonancePlaybackService : MediaSessionService() {
             private fun saveMode(){getSharedPreferences("resonance_settings",MODE_PRIVATE).edit()
                 .putString("qq_playback_mode",PlaybackMode.fromPlayer(player.repeatMode,player.shuffleModeEnabled).name).apply();adjustRangeQueue()}
             override fun onRepeatModeChanged(repeatMode:Int){saveMode()}
-            override fun onShuffleModeEnabledChanged(shuffleModeEnabled:Boolean){saveMode()}
+            override fun onShuffleModeEnabledChanged(shuffleModeEnabled:Boolean){saveMode();if(shuffleModeEnabled){preferenceShuffle.reset();shuffleKey=null;refreshPreferenceShuffle()}}
             override fun onIsPlayingChanged(isPlaying: Boolean) { tracker.tick(SystemClock.elapsedRealtime(), isPlaying);tickListeningTime(isPlaying) }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val mid = mediaItem?.mediaId?.removePrefix("qq:")
+                if(mid!=null)preferenceShuffle.visit(mid,previousRequested && reason==Player.MEDIA_ITEM_TRANSITION_REASON_SEEK)
+                previousRequested=false
                 applyScoreReset()
                 if (mid != null) QqLibrary.prioritize(mid)
                 val kind = if (reason in setOf(Player.MEDIA_ITEM_TRANSITION_REASON_AUTO,Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT)) TrackTransition.NATURAL else nextTransition
@@ -214,6 +237,7 @@ class ResonancePlaybackService : MediaSessionService() {
                 if (event != null && historyScope.isNotBlank()) {
                     CatalogueStore.record(this@ResonancePlaybackService, historyScope, event.mid, event.heardMs, event.durationMs, event.category, event.reason)
                     QqLibrary.refreshListening()
+                    refreshPreferenceShuffle()
                     if (event.changeDirection && getSharedPreferences("resonance_settings", MODE_PRIVATE).getBoolean("qq_auto_direction", true)) {
                         val requestedScope=historyScope
                         val requestedEpoch=QqLibrary.state.scoreEpoch
@@ -228,6 +252,7 @@ class ResonancePlaybackService : MediaSessionService() {
                                 automaticAvoided=plan.rejectedGenres
                                 val first=items.first().mediaId.removePrefix("qq:")
                                 pendingDirection=QqLibrary.beginDirection(mid.orEmpty(),first,plan)
+                                preferenceShuffle.reset();shuffleKey=null
                                 noticeGate.request(first,QqLibrary.state.genres[first]?.labels.orEmpty(),SystemClock.elapsedRealtime(),plan.directionKind)
                                 player.setMediaItems(items,0,0)
                                 player.prepare()
@@ -248,6 +273,7 @@ class ResonancePlaybackService : MediaSessionService() {
                     message = if (excerpt) "试听片段已结束。" else "本首播放结束。"
                 }
                 if (playbackState == Player.STATE_READY) {
+                    refreshPreferenceShuffle()
                     val mid = player.currentMediaItem?.mediaId.orEmpty().removePrefix("qq:")
                     if (tracker.currentMid != mid) tracker.transition(mid, QqLibrary.track(mid)?.durationMs ?: 0,
                         TrackTransition.OTHER, SystemClock.elapsedRealtime())
@@ -286,6 +312,7 @@ class ResonancePlaybackService : MediaSessionService() {
                 return try {
                     val validated=Futures.getDone(onAddMediaItems(session,controller,mediaItems))
                     automaticAvoided=emptySet()
+                    preferenceShuffle.reset();shuffleKey=null
                     batchMids=validated.map {it.mediaId.removePrefix("qq:")}
                     if(validated.isEmpty()) {
                         nextTransition=TrackTransition.OTHER
@@ -306,6 +333,7 @@ class ResonancePlaybackService : MediaSessionService() {
             }
             @Suppress("DEPRECATION")
             override fun onPlayerCommandRequest(session: MediaSession, controller: MediaSession.ControllerInfo, playerCommand: Int): Int {
+                previousRequested=playerCommand in setOf(Player.COMMAND_SEEK_TO_PREVIOUS,Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
                 if (playerCommand in setOf(Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
                         Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM, Player.COMMAND_SEEK_TO_MEDIA_ITEM))
                     nextTransition = TrackTransition.USER

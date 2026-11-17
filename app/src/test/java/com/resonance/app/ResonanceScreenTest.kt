@@ -276,4 +276,25 @@ class ResonanceScreenTest {
         compose.onNodeWithText("3 分钟").assertIsDisplayed()
         capture("companion-time-test-data")
     }
+    @Test fun directFeedbackLetsUserSelectTagsAndDoesNotChangeQQFavorite() {
+        val song=QqCatalogueTrack("feedback","feedback","反馈测试歌","歌手","专辑",200000)
+        var selected=emptySet<String>();var more=false;var favorite=false
+        compose.setContent {ResonanceScreen(LibraryState(accountScope="test",favorites=listOf(song),genres=mapOf(song.mid to CatalogueGenre(song.mid,setOf("pop","jazz"),"qq-song-detail","",0,999))),PlayerStatus(mid=song.mid),
+            {},{},{},{},{},{},{},{},{},{},{},onFavorite={favorite=true},onSongFeedback={mid,tags,positive->assertEquals(song.mid,mid);selected=tags;more=positive})}
+        compose.onAllNodesWithText("反馈测试歌").onLast().performClick()
+        compose.onNodeWithText("多来这种").performScrollTo().performClick()
+        compose.onAllNodesWithText("流行").onLast().performClick()
+        capture("active-feedback-test-data")
+        compose.onNodeWithText("确认调整").performScrollTo().performClick()
+        assertEquals(setOf("jazz"),selected);assertTrue(more);assertFalse(favorite)
+    }
+    @Test fun detailShowsCommunityDescriptorsSeparatelyFromGenres() {
+        val song=QqCatalogueTrack("descriptor","descriptor","线索测试歌","歌手","专辑",200000)
+        show(LibraryState(accountScope="test",favorites=listOf(song),genres=mapOf(song.mid to CatalogueGenre(song.mid,setOf("pop"),"qq-song-detail","",0,999,descriptors=setOf("mood:calm","instrument:piano")))))
+        compose.onNodeWithText("收藏",useUnmergedTree=true).performClick()
+        compose.onNodeWithContentDescription("线索测试歌的歌曲详情").performClick()
+        compose.onNodeWithText("听感线索 · 曲库标注").assertIsDisplayed()
+        compose.onNodeWithText("钢琴 · 舒缓").performScrollTo().assertIsDisplayed()
+        capture("recording-descriptors-test-data")
+    }
 }

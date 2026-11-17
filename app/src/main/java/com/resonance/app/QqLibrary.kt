@@ -16,7 +16,7 @@ data class LibraryState(
     val favoriteStates:Map<String,Boolean> = emptyMap(),val favoriteBusy:Set<String> = emptySet(),val favoriteUncertain:Set<String> = emptySet(),
     val feedback:DirectionNotice?=null,val directionHistory:List<DirectionSwitch> = emptyList(),
     val enriching:Boolean=false,val enrichedProgress:Int=0,val enrichmentTotal:Int=0,
-    val scoreListening:List<ListeningSignal>?=null,val scoreEpoch:Long=0,val listeningTimeMs:Long=0
+    val scoreListening:List<ListeningSignal>?=null,val scoreEpoch:Long=0,val listeningTimeMs:Long=0,val manualScores:Map<String,Double> = emptyMap()
 ) {
     val scoreSignals get()=scoreListening?:listening
     val allTracks get() = (favorites + discoveries).distinctBy { it.mid }
@@ -61,7 +61,7 @@ object QqLibrary {
         val context=app?:return 0
         val id=System.nanoTime()
         val row=DirectionSwitch(id,System.currentTimeMillis(),from,target,track(target)?.name.orEmpty(),plan.directionKind,plan.explanation,
-            scores=GenrePreferenceScores.calculate(styleTracks(),value.scoreSignals).associate {it.label to it.combined})
+            scores=GenrePreferenceScores.calculate(styleTracks(),value.scoreSignals,value.manualScores).associate {it.label to it.combined})
         val rows=(value.directionHistory+row).takeLast(20)
         CatalogueStore.saveDirectionHistory(context,value.accountScope,rows);update(value.copy(directionHistory=rows))
         return id
@@ -138,6 +138,7 @@ object QqLibrary {
                 intent=intent,
                 scoreListening=if(key.isBlank())emptyList() else StyleRecommendations.signals(CatalogueStore.scoreEvents(context,key)),
                 scoreEpoch=if(key.isBlank())0 else CatalogueStore.scoreEpoch(context,key),listeningTimeMs=ListeningTimeStore.totalMs(context),
+                manualScores=if(key.isBlank())emptyMap() else CatalogueStore.manualScores(context,key),
                 directionHistory=if(key.isBlank())emptyList() else CatalogueStore.directionHistory(context,key).map {
                     if(it.state=="PREPARING")it.copy(state="UNCONFIRMED",detail="上次播放服务已中断，未确认目标播放。") else it},
                 discoverySources = discoveryPool.sources(), listening = if(key.isBlank())emptyList() else StyleRecommendations.signals(CatalogueStore.events(context,key)),
@@ -229,8 +230,7 @@ object QqLibrary {
         }
         if(automatic && automaticEnriched)return
         val now=System.currentTimeMillis()
-        val eligible=if(mid!=null)listOfNotNull(track(mid)) else value.favorites.filter {value.genres[it.mid]?.labels?.size==1}
-        val candidates=eligible.filter {!automatic || (value.genres[it.mid]?.enrichRetryAt?:0)<=now}.let {if(automatic)it.take(20) else it}
+        val candidates=CatalogueEnrichmentPlan.candidates(if(mid!=null)value.allTracks else value.favorites,value.genres,mid,automatic,now)
         if(candidates.isEmpty()){if(!automatic)feedback("暂无需要补查的单标签歌曲。");return}
         if(automatic)automaticEnriched=true
         val token=generation
@@ -337,7 +337,7 @@ object QqLibrary {
         if(value.accountScope.isBlank())return
         val epoch=CatalogueStore.clearScores(context,value.accountScope)
         recommendationAnchor=null;surpriseId=null
-        update(value.copy(scoreListening=emptyList(),scoreEpoch=epoch,recommendation=null))
+        update(value.copy(scoreListening=emptyList(),scoreEpoch=epoch,recommendation=null,manualScores=emptyMap()))
         feedback("标签分数已清零，将从新的听歌反馈重新积累。")
     }
     fun refreshListening() {
@@ -345,6 +345,19 @@ object QqLibrary {
         update(value.copy(listening=StyleRecommendations.signals(CatalogueStore.events(context,value.accountScope)),
             scoreListening=StyleRecommendations.signals(CatalogueStore.scoreEvents(context,value.accountScope))))
         refreshRecommendation()
+    }
+    fun songFeedback(mid:String,selected:Set<String>,more:Boolean) {
+        val context=app?:return
+        if(value.accountScope.isBlank())return
+        val labels=selected.intersect(value.genres[mid]?.labels.orEmpty())
+        if(labels.isEmpty()){feedback("这首歌的曲风仍待补充，暂不能按标签调整。");return}
+        val scores=value.manualScores.toMutableMap()
+        labels.forEach {tag->scores[tag]=((scores[tag]?:0.0)+if(more)2.0 else -2.0).coerceIn(-6.0,6.0)}
+        CatalogueStore.saveManualScores(context,value.accountScope,scores)
+        update(value.copy(manualScores=scores))
+        val anchor=PlaybackStateBus.value.mid.takeIf {track(it)!=null}?:mid
+        similar(anchor)
+        feedback(if(more)"已提高所选曲风的推荐倾向。" else "已降低所选曲风的推荐倾向。")
     }
     fun similar(mid: String): StylePlan {
         recommendationAnchor = mid
@@ -357,8 +370,8 @@ object QqLibrary {
     fun direction(mid: String): StylePlan {
         recommendationAnchor = null
         val favorites=value.favorites.map {"qq:${it.mid}"}.toSet()
-        val genrePlan = StyleRecommendations.changeDirection("qq:$mid", styleTracks(), signals(), favorites,value.intent,value.scoreSignals)
-        val plan=DirectionFallback.plan(genrePlan,styleTracks(true).filter {value.intent.accepts(it.genres)},signals(),favorites,"qq:$mid",value.scoreSignals)
+        val genrePlan = StyleRecommendations.changeDirection("qq:$mid", styleTracks(), signals(), favorites,value.intent,value.scoreSignals,value.manualScores)
+        val plan=DirectionFallback.plan(genrePlan,styleTracks(true).filter {value.intent.accepts(it.genres)},signals(),favorites,"qq:$mid",value.scoreSignals,value.manualScores)
         update(value.copy(recommendation = plan))
         return plan
     }
@@ -367,7 +380,7 @@ object QqLibrary {
     private fun similarPlan(mid: String):StylePlan {
         val tracks=styleTracks(true)
         val favorites=value.favorites.map {"qq:${it.mid}"}.toSet()
-        val base=StyleRecommendations.similar("qq:$mid",tracks,signals(),favorites,discoveryPool.related(mid).map {"qq:$it"}.toSet(),value.intent,value.scoreSignals)
+        val base=StyleRecommendations.similar("qq:$mid",tracks,signals(),favorites,discoveryPool.related(mid).map {"qq:$it"}.toSet(),value.intent,value.scoreSignals,value.manualScores)
         val plan=SurpriseRecommendations.compose(base,tracks,signals(),favorites,"qq:$mid",
             app?.getSharedPreferences("resonance_settings",Context.MODE_PRIVATE)?.getBoolean("qq_surprise_enabled",true)==true,surpriseId,intent=value.intent)
         surpriseId=plan.picks.firstOrNull {it.surprise}?.track?.mediaId

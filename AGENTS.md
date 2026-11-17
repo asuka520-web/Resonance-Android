@@ -86,6 +86,22 @@ from feedback and the 500-event cap. Use monotonic audible intervals; never seek
 positions or app-open duration. One-time legacy recovery is limited to retained
 history; do not claim restoration of previously evicted events. See docs/SCORE_TIME_TEST.md.
 
+## v0.15.0 user-requested work
+
+The user selected restrained copy (相似推荐 / 随心听), approved more metadata and
+active feedback, then explicitly requested dynamic weighted shuffle now if feasible
+or a recorded TODO. Native shuffle is now weighted by the same displayed scores,
+with bounded exponential weights, neutral unknowns and a stable visited prefix;
+do not claim a fixed next track, QQ private algorithm or inferred emotions.
+Active feedback is separate from actual listening events and QQ hearts, capped
+per label, account-scoped and cleared by the existing score reset. Supplement
+all eligible favourites instead of only 20 per process, retaining expiry and the
+3-error pause. MusicBrainz non-genre recording descriptors use a controlled
+allowlist and at least two votes, stored/displayed separately; they must not be
+passed to genre matching, preference scores or automatic style proof. No new
+audio model or additional provider is shipped. Pending evaluation and source
+expansion must remain explicit in docs/ROADMAP.md. See docs/WEIGHTED_SHUFFLE_TEST.md.
+
 ## Before editing
 - Read `README.md` and `docs/LOCAL_DEVELOPMENT.md`.
 - Inspect the current implementation before changing it. Do not assume old chat summaries describe the current source.

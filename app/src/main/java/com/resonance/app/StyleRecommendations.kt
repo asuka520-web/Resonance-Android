@@ -25,14 +25,14 @@ object StyleRecommendations {
     }
 
     fun similar(anchorId: String, tracks: List<StyleTrack>, events: List<ListeningSignal>,
-                familiarIds: Set<String> = events.map { it.mediaId }.toSet(), relatedIds: Set<String> = emptySet(), intent:ListeningIntent=ListeningIntent(),scoreEvents:List<ListeningSignal> = events): StylePlan {
+                familiarIds: Set<String> = events.map { it.mediaId }.toSet(), relatedIds: Set<String> = emptySet(), intent:ListeningIntent=ListeningIntent(),scoreEvents:List<ListeningSignal> = events,manualScores:Map<String,Double> = emptyMap()): StylePlan {
         val anchor = tracks.firstOrNull { it.mediaId == anchorId && (it.genres.isNotEmpty() || relatedIds.isNotEmpty() || intent.wanted.isNotEmpty()) }
             ?: return StylePlan("正在了解这首歌", "当前歌曲的曲风资料尚未就绪，自动补齐后即可推荐。")
         val candidates = eligible(tracks, events, setOf(anchorId), relatedIds).filter {
             intent.accepts(it.genres) && it.recordingId != anchor.recordingId && (intent.wanted.isNotEmpty() || it.genres.intersect(anchor.genres).isNotEmpty() ||
                 (it.mediaId in relatedIds && (it.genres.isEmpty() || anchor.genres.isEmpty())))
         }
-        val scores=GenrePreferenceScores.calculate(tracks,scoreEvents).associateBy {it.label}
+        val scores=GenrePreferenceScores.calculate(tracks,scoreEvents,manualScores).associateBy {it.label}
         val ranked = candidates.sortedWith(compareByDescending<StyleTrack> {
             val overlap = it.genres.intersect(anchor.genres).size.toDouble()
             val union = it.genres.union(anchor.genres).size
@@ -50,7 +50,7 @@ object StyleRecommendations {
     }
 
     fun changeDirection(currentId: String, tracks: List<StyleTrack>, events: List<ListeningSignal>,
-                        familiarIds: Set<String> = events.map { it.mediaId }.toSet(), intent:ListeningIntent=ListeningIntent(),scoreEvents:List<ListeningSignal> = events): StylePlan {
+                        familiarIds: Set<String> = events.map { it.mediaId }.toSet(), intent:ListeningIntent=ListeningIntent(),scoreEvents:List<ListeningSignal> = events,manualScores:Map<String,Double> = emptyMap()): StylePlan {
         val rejected = events.takeLast(4)
         if (rejected.size != 4 || rejected.any { it.category != "fast" })
             return StylePlan("换方向", "需要连续四次有效快速跳过。")
@@ -63,7 +63,7 @@ object StyleRecommendations {
             return StylePlan("四次快跳：风格混杂", "这四首没有足够共同曲风，无法据此认定你不想听哪种风格；可改用当前歌曲的同曲风推荐。")
         val excluded = rejected.map { it.mediaId }.toSet() + currentId
         val rejectedRecordings = rejectedTracks.filterNotNull().map { it.recordingId }.toSet()
-        val scores=GenrePreferenceScores.calculate(tracks,scoreEvents).associateBy {it.label}
+        val scores=GenrePreferenceScores.calculate(tracks,scoreEvents,manualScores).associateBy {it.label}
         val ranked = eligible(tracks, events, excluded).filter {
             intent.accepts(it.genres) && it.genres.intersect(common).isEmpty() && it.recordingId !in rejectedRecordings
         }.sortedWith(compareByDescending<StyleTrack> { GenrePreferenceScores.preference(it,events,scores) }.thenBy { it.mediaId })

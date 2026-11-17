@@ -24,8 +24,8 @@ android {
         manifestPlaceholders["listenerLabel"] = if (previewBuild) "Resonance 预览版媒体监听" else "Resonance 媒体监听"
         minSdk = 26
         targetSdk = 35
-        versionCode = 16
-        versionName = "0.14.0"
+        versionCode = 17
+        versionName = "0.15.0"
     }
     buildTypes {
         release {

@@ -35,6 +35,12 @@ class ListeningStatsTest {
         assertEquals(0.0,scores.getValue("pop").combined,0.001)
         assertEquals(-3.0,scores.getValue("jazz").combined,0.001)
     }
+    @Test fun activeFeedbackPersistsPerAccountAndClearScoresRemovesIt() {
+        CatalogueStore.saveManualScores(context,"active",mapOf("pop" to 4.0))
+        assertEquals(4.0,CatalogueStore.manualScores(context,"active").getValue("pop"),0.0)
+        CatalogueStore.clearScores(context,"active")
+        assertTrue(CatalogueStore.manualScores(context,"active").isEmpty())
+    }
     @Test fun legacyHistoryFeedsScoresUntilExplicitResetAndNewScoresStayBounded() {
         val scope="legacy-scores"
         val prefs=context.getSharedPreferences("qq_library_$scope",0)

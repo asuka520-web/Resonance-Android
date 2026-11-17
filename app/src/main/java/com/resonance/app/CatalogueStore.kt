@@ -13,7 +13,7 @@ data class CatalogueGenre(val mid: String, val labels: Set<String>, val source: 
                           val status: GenreLookupStatus = if (labels.isNotEmpty()) GenreLookupStatus.READY
                           else if (source == "pending") GenreLookupStatus.RETRY else GenreLookupStatus.UNAVAILABLE,
                           val sourceLabels:Map<String,Set<String>> = emptyMap(),val enrichmentState:String="",
-                          val enrichRetryAt:Long=0,val enrichmentNote:String="",val metadataKey:String="") {
+                          val enrichRetryAt:Long=0,val enrichmentNote:String="",val metadataKey:String="",val descriptors:Set<String> = emptySet()) {
     fun providers()=if(sourceLabels.isNotEmpty())sourceLabels else if(labels.isNotEmpty())mapOf(source to labels) else emptyMap()
 }
 
@@ -21,12 +21,13 @@ object GenreLookupPolicy {
     fun preserveKnown(previous:CatalogueGenre?,fresh:CatalogueGenre):CatalogueGenre {
         if(previous?.mid!=fresh.mid)return fresh
         if(previous.metadataKey.isNotBlank() && fresh.metadataKey.isNotBlank() && previous.metadataKey!=fresh.metadataKey)return fresh
-        if(previous.labels.isNotEmpty() && fresh.labels.isEmpty())return previous.copy(retryAt=fresh.retryAt)
+        if(previous.labels.isNotEmpty() && fresh.labels.isEmpty())return previous.copy(retryAt=fresh.retryAt,descriptors=previous.descriptors+fresh.descriptors,
+            recordingId=fresh.recordingId.ifBlank {previous.recordingId})
         if(previous.labels.isNotEmpty() && fresh.labels.isNotEmpty()) {
             val sources=previous.providers()+fresh.providers()
             return fresh.copy(labels=sources.values.flatten().toSet(),source=sources.keys.sorted().joinToString("+"),sourceLabels=sources,
                 recordingId=fresh.recordingId.ifBlank {previous.recordingId},enrichmentState=previous.enrichmentState,
-                enrichRetryAt=previous.enrichRetryAt,enrichmentNote=previous.enrichmentNote)
+                enrichRetryAt=previous.enrichRetryAt,enrichmentNote=previous.enrichmentNote,descriptors=previous.descriptors+fresh.descriptors)
         }
         return fresh
     }
@@ -61,22 +62,27 @@ object CatalogueCodec {
         .put("updatedAt", value.updatedAt).put("retryAt", value.retryAt).put("recordingId", value.recordingId)
         .put("status", value.status.name).put("sourceLabels",JSONObject(value.sourceLabels.mapValues {JSONArray(it.value.sorted())}))
         .put("enrichmentState",value.enrichmentState).put("enrichRetryAt",value.enrichRetryAt)
+        .put("descriptors",JSONArray(value.descriptors.sorted()))
         .put("enrichmentNote",value.enrichmentNote).put("metadataKey",value.metadataKey).toString()
     fun genres(raw: String?): CatalogueGenre? = try {
         val obj = JSONObject(raw ?: "")
         val rows = obj.getJSONArray("labels")
-        val legacy = CatalogueGenre(obj.getString("mid"), (0 until rows.length()).map { rows.getString(it) }.toSet(),
+        val legacy = CatalogueGenre(obj.getString("mid"), (0 until rows.length()).map { normalizeGenre(rows.getString(it)) }.toSet(),
             obj.getString("source"), obj.getString("evidence"), obj.getLong("updatedAt"), obj.getLong("retryAt"), obj.optString("recordingId"))
         val providers=obj.optJSONObject("sourceLabels")
         val sourceLabels=providers?.keys()?.asSequence()?.associateWith {key ->
-            val values=providers.optJSONArray(key)?:JSONArray();(0 until values.length()).map {values.getString(it)}.toSet()}.orEmpty()
+            val values=providers.optJSONArray(key)?:JSONArray();(0 until values.length()).map {normalizeGenre(values.getString(it))}.toSet()}.orEmpty()
+        val descriptors=obj.optJSONArray("descriptors")?:JSONArray()
         legacy.copy(status = runCatching { GenreLookupStatus.valueOf(obj.getString("status")) }.getOrDefault(legacy.status),
             sourceLabels=sourceLabels,enrichmentState=obj.optString("enrichmentState"),enrichRetryAt=obj.optLong("enrichRetryAt"),
-            enrichmentNote=obj.optString("enrichmentNote"),metadataKey=obj.optString("metadataKey"))
+            enrichmentNote=obj.optString("enrichmentNote"),metadataKey=obj.optString("metadataKey"),
+            descriptors=(0 until descriptors.length()).map {descriptors.getString(it)}.filter {it in RecordingDescriptors.allowed}.toSet())
     } catch (_: Exception) { null }
     fun normalizeGenre(value: String): String = when (val key = value.trim().lowercase(Locale.ROOT)) {
         "hip-hop", "hiphop" -> "hip hop"
         "rhythm and blues", "rnb" -> "r&b"
+        "流行"->"pop";"摇滚"->"rock";"民谣"->"folk";"爵士"->"jazz";"电子"->"electronic";"古典"->"classical"
+        "乡村"->"country";"灵魂乐"->"soul";"金属"->"metal";"说唱", "嘻哈"->"hip hop";"节奏布鲁斯"->"r&b"
         else -> key
     }
     fun identity(song:QqCatalogueTrack)=MessageDigest.getInstance("SHA-256").digest(
@@ -116,9 +122,16 @@ object CatalogueStore {
         JSONArray(prefs.getString("scoreEvents",null)?:prefs.getString("playerEvents","[]"))
     }catch(_:Exception){JSONArray()}
     fun scoreEpoch(context:Context,scope:String)=library(context,scope).getLong("scoreEpoch",0)
+    fun manualScores(context:Context,scope:String):Map<String,Double> = try {
+        val json=JSONObject(library(context,scope).getString("manualScores","{}")?:"{}")
+        json.keys().asSequence().mapNotNull {key->json.optDouble(key).takeIf {it.isFinite()}?.coerceIn(-6.0,6.0)?.let {key to it}}.toMap()
+    }catch(_:Exception){emptyMap()}
+    fun saveManualScores(context:Context,scope:String,scores:Map<String,Double>) {
+        library(context,scope).edit().putString("manualScores",JSONObject(scores).toString()).apply()
+    }
     fun clearScores(context:Context,scope:String):Long {
         val epoch=scoreEpoch(context,scope)+1
-        library(context,scope).edit().putString("scoreEvents","[]").putLong("scoreEpoch",epoch).apply()
+        library(context,scope).edit().putString("scoreEvents","[]").putString("manualScores","{}").putLong("scoreEpoch",epoch).apply()
         return epoch
     }
     fun record(context: Context, scope: String, mid: String, playedMs: Long, durationMs: Long, category: String, reason: String) {

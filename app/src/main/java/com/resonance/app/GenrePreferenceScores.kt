@@ -1,11 +1,11 @@
 package com.resonance.app
 
-data class GenreScore(val label:String,val recent:Double,val longTerm:Double,val combined:Double,val observations:Int)
+data class GenreScore(val label:String,val recent:Double,val longTerm:Double,val combined:Double,val observations:Int,val manual:Double=0.0)
 fun LibraryState.genreScores()=GenrePreferenceScores.calculate(allTracks.map {song->
     StyleTrack("qq:${song.mid}",song.name,song.artist,genres[song.mid]?.recordingId?.ifBlank {"qq:${song.mid}"}?:"qq:${song.mid}",genres[song.mid]?.labels.orEmpty())
-},scoreSignals)
+},scoreSignals,manualScores)
 object GenrePreferenceScores {
-    fun calculate(tracks:List<StyleTrack>,events:List<ListeningSignal>):List<GenreScore> {
+    fun calculate(tracks:List<StyleTrack>,events:List<ListeningSignal>,manualScores:Map<String,Double> = emptyMap()):List<GenreScore> {
         val byId=tracks.associateBy {it.mediaId}
         fun points(event:ListeningSignal)=when(event.category){"completed"->2.0;"fast"->-3.0;"partial"->-1.0;else->0.0}
         fun sums(rows:List<ListeningSignal>):Map<String,Double> {
@@ -19,7 +19,8 @@ object GenrePreferenceScores {
         val observations=historical.flatMap {byId[it.mediaId]?.genres.orEmpty()}.groupingBy {it}.eachCount()
         return tracks.flatMap {it.genres}.distinct().map {tag ->
             val short=recent[tag]?:0.0;val full=long[tag]?:0.0
-            GenreScore(tag,short,full,short*.7+full*scale*.3,observations[tag]?:0)
+            val manual=manualScores[tag]?.takeIf {it.isFinite()}?.coerceIn(-6.0,6.0)?:0.0
+            GenreScore(tag,short,full,short*.7+full*scale*.3+manual,observations[tag]?:0,manual)
         }.sortedWith(compareByDescending<GenreScore> {it.combined}.thenBy {it.label})
     }
     fun preference(track:StyleTrack,events:List<ListeningSignal>,scores:Map<String,GenreScore>):Double =

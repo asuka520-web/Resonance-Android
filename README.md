@@ -3,6 +3,21 @@
 A local-first Android music assistant with QQ account integration, background
 playback, favourite-first genre enrichment and recommendations. Kotlin + Compose.
 
+## v0.15.0
+
+- Shuffle now uses bounded tag-score weights and updates the unvisited queue after
+  real feedback, explicit feedback, tag changes or score reset. Keep the current
+  item/position and visited prefix; neutral/unknown songs retain exploration.
+- “More like this / Less for now” lets users choose actual track genres, with
+  separate bounded active feedback visible in scores, no fabricated listen events
+  and no QQ favourite changes. Reset clears both passive and active scores.
+- Enrichment now processes all eligible single-tag favourites, resuming through
+  cached results. Canonicalize Chinese/English aliases without inventing labels.
+  Strict recording community mood/instrument tags require two positive votes and
+  appear separately as catalogue clues, not model analysis or genre evidence.
+- UI wording follows the user's restrained preference: 相似推荐 / 随心听.
+- [Phone acceptance](docs/WEIGHTED_SHUFFLE_TEST.md) · [Remaining work](docs/ROADMAP.md).
+
 ## v0.14.0
 
 - Prominent current tag-score cards on For You and Profile, with every label
