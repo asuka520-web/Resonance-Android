@@ -71,6 +71,12 @@ notification-service lifecycle. See `docs/TESTING_STRATEGY.md`.
 - Do not add secrets, API keys, signing keys, or `local.properties` to Git.
 
 ## Release workflow
+
+- All local/cloud debug, preview and release APKs use the pinned existing Android
+  signing identity in `signing-certificate.sha256`. Missing or mismatched keys
+  must fail packaging, never generate a fallback key. Cloud restores the key
+  from `RESONANCE_ANDROID_KEYSTORE_BASE64`; local uses ignored `.ci-signing/`.
+  Never commit signing keys, encrypted secret payloads or transfer private keys.
 - Pushes to `main` trigger `.github/workflows/build-apk.yml`.
 - CI should assemble the debug APK, upload a workflow artifact, and update the `latest-test` GitHub Release.
 - Check the actual workflow run and release asset before telling the user a build or release succeeded.

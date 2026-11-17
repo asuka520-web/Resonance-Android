@@ -27,8 +27,9 @@ JSON 继续使用 schemaVersion 3，songInfo 中保留来源；历史及偏好�
 
 检查旧工作流日志发现 `~/.android/debug.keystore` 缓存路径没有实际文件，缓存未保存。
 旧构建的私钥不在该缓存中，不能承诺新包能覆盖旧云端安装。
-现改为显式的 RESONANCE_DEBUG_KEYSTORE 路径和 v2 缓存，并在构建前确保密钥存在。
-缓存仍不是永久签名备份；正式发布前需要持久托管的发布密钥。
+v0.6.2 过渡构建生成的签名已从 v2 缓存安全取回，核对与已发布包完全相同后，
+迁移至 GitHub 加密 Secret 并在本机备份。本地/云端、普通/预览、debug/release
+均沿用此签名，构建校验固定指纹，不再在缺失配置时生成新密钥。详见 SIGNING.md。
 
 工作流同时生成 `Resonance-preview-debug.apk`（com.resonance.app.preview，启动器名称
 “Resonance 预览版”），用于不卸载旧版的并行验证。两应用数据隔离，预览版不会自动

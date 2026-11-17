@@ -65,8 +65,10 @@ For existing installations signed by the old cloud workflow, use
 [the side-by-side preview APK](https://github.com/asuka520-web/Resonance-Android/releases/download/latest-test/Resonance-preview-debug.apk)
 to test without uninstalling the old app. It is labelled **Resonance 预览版**,
 has separate data, and needs its own notification access. Old history is not
-automatically migrated. The workflow now explicitly signs with a cached key;
-the old workflow's nonexistent cache path did not preserve its generated keys.
+automatically migrated. All future local/cloud APKs use the same pinned signing
+key, restored from an encrypted GitHub Secret rather than an evictable cache.
+Missing or mismatched keys fail packaging. See [signing setup](docs/SIGNING.md).
+The old workflow's nonexistent cache path did not preserve its early keys.
 
 [Latest test APK release](https://github.com/asuka520-web/Resonance-Android/releases/tag/latest-test)
 
