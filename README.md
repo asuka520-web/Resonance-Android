@@ -3,6 +3,21 @@
 A local-first Android music assistant with QQ account integration, background
 playback, favourite-first genre enrichment and recommendations. Kotlin + Compose.
 
+## v0.10.0
+
+- Separate waiting, failed/retryable and unavailable genre states, with a batch
+  retry that preserves existing positive tags and reads legacy cached data.
+- Automatically discover QQ related-song candidates from diverse favourite
+  seeds and the current track. Cache direct relationships per account, expose
+  outside-favourite counts and a discover-more action; fetch metadata only.
+- Unknown genres may use explicit QQ direct relations for similar recommendations,
+  labelled separately from genre evidence. Direction changes still require known
+  genres. No reverse/transitive relationship or artist-genre inference.
+- Play a recommendation batch in its actual order, including starting at a
+  selected song; never append the old favourites order to that batch.
+- [Phone acceptance](docs/DISCOVERY_RELEASE_TEST.md). Existing fixed signing,
+  histories, account login and bounded background playback remain intact.
+
 ## v0.9.0
 
 - Independent Media3 session service with background audio, system controls and

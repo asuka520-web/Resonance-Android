@@ -18,6 +18,26 @@ class StyleRecommendationsTest {
     @Test fun unknownAnchorIsBlockedRatherThanInferred() {
         assertTrue(StyleRecommendations.similar("anchor", listOf(song("anchor"), song("other", "pop")), emptyList()).picks.isEmpty())
     }
+    @Test fun unknownGenreUsesOnlyExplicitQqRelationsWithoutFabricatingLabels() {
+        val tracks=listOf(song("anchor"),song("related"),song("unrelated"),song("tagged","pop"))
+        val plan=StyleRecommendations.similar("anchor",tracks,emptyList(),relatedIds=setOf("related"))
+        assertEquals(listOf("related"),plan.picks.map {it.track.mediaId})
+        assertTrue(plan.picks.single().track.genres.isEmpty())
+        assertTrue(plan.picks.single().reason.contains("QQ 相关歌曲"))
+        assertFalse(plan.picks.single().reason.contains("共同曲风"))
+    }
+    @Test fun relatedFallbackDoesNotOverrideKnownGenreConflictOrRecentDislikes() {
+        val tracks=listOf(song("anchor","pop"),song("unknown"),song("conflict","metal"),song("rejected"),song("good","pop"))
+        val plan=StyleRecommendations.similar("anchor",tracks,listOf(ListeningSignal("rejected","fast")),
+            relatedIds=setOf("unknown","conflict","rejected"))
+        assertEquals(setOf("unknown","good"),plan.picks.map {it.track.mediaId}.toSet())
+    }
+    @Test fun directionChangeNeverUsesUnknownGenreAsAnOppositeDirection() {
+        val skipped=(1..4).map {song("skip$it","pop")}
+        val events=skipped.map {ListeningSignal(it.mediaId,"fast")}
+        val plan=StyleRecommendations.changeDirection("current",skipped+listOf(song("unknown"),song("other","rock")),events)
+        assertEquals(listOf("other"),plan.picks.map {it.track.mediaId})
+    }
 
     @Test fun excludesCurrentRecordingDuplicatesAndRecentNegativeSongs() {
         val tracks = listOf(song("anchor", "pop"), song("alias", "pop", recording = "anchor"),

@@ -6,8 +6,28 @@ import org.json.JSONObject
 import java.security.MessageDigest
 import java.util.Locale
 
+enum class GenreLookupStatus { READY, WAITING, RETRY, UNAVAILABLE }
+
 data class CatalogueGenre(val mid: String, val labels: Set<String>, val source: String, val evidence: String,
-                          val updatedAt: Long, val retryAt: Long, val recordingId: String = "")
+                          val updatedAt: Long, val retryAt: Long, val recordingId: String = "",
+                          val status: GenreLookupStatus = if (labels.isNotEmpty()) GenreLookupStatus.READY
+                          else if (source == "pending") GenreLookupStatus.RETRY else GenreLookupStatus.UNAVAILABLE)
+
+object GenreLookupPolicy {
+    fun status(genre: CatalogueGenre?): GenreLookupStatus = when {
+        genre == null -> GenreLookupStatus.WAITING
+        genre.labels.isNotEmpty() -> GenreLookupStatus.READY
+        else -> genre.status
+    }
+    fun retry(genre: CatalogueGenre): CatalogueGenre = if (genre.labels.isNotEmpty()) genre
+        else genre.copy(retryAt = 0, status = GenreLookupStatus.WAITING)
+    fun description(genre: CatalogueGenre?): String = when (status(genre)) {
+        GenreLookupStatus.READY -> "曲风已取得"
+        GenreLookupStatus.WAITING -> "等待查询曲风"
+        GenreLookupStatus.RETRY -> "查询失败 · 可重试"
+        GenreLookupStatus.UNAVAILABLE -> "来源暂无曲风资料"
+    }
+}
 
 object CatalogueCodec {
     fun track(song: QqCatalogueTrack): JSONObject = JSONObject().put("mid", song.mid).put("mediaMid", song.mediaMid)
@@ -22,12 +42,14 @@ object CatalogueCodec {
     }
     fun genres(value: CatalogueGenre): String = JSONObject().put("mid", value.mid)
         .put("labels", JSONArray(value.labels.sorted())).put("source", value.source).put("evidence", value.evidence)
-        .put("updatedAt", value.updatedAt).put("retryAt", value.retryAt).put("recordingId", value.recordingId).toString()
+        .put("updatedAt", value.updatedAt).put("retryAt", value.retryAt).put("recordingId", value.recordingId)
+        .put("status", value.status.name).toString()
     fun genres(raw: String?): CatalogueGenre? = try {
         val obj = JSONObject(raw ?: "")
         val rows = obj.getJSONArray("labels")
-        CatalogueGenre(obj.getString("mid"), (0 until rows.length()).map { rows.getString(it) }.toSet(),
+        val legacy = CatalogueGenre(obj.getString("mid"), (0 until rows.length()).map { rows.getString(it) }.toSet(),
             obj.getString("source"), obj.getString("evidence"), obj.getLong("updatedAt"), obj.getLong("retryAt"), obj.optString("recordingId"))
+        legacy.copy(status = runCatching { GenreLookupStatus.valueOf(obj.getString("status")) }.getOrDefault(legacy.status))
     } catch (_: Exception) { null }
     fun normalizeGenre(value: String): String = when (val key = value.trim().lowercase(Locale.ROOT)) {
         "hip-hop", "hiphop" -> "hip hop"
@@ -51,6 +73,10 @@ object CatalogueStore {
         editor.apply()
     }
     fun syncedAt(context: Context, scope: String) = library(context, scope).getLong("syncedAt", 0)
+    fun discovery(context: Context, scope: String) = DiscoveryPool.decode(library(context, scope).getString("discovery", null))
+    fun saveDiscovery(context: Context, scope: String, pool: DiscoveryPool) {
+        library(context, scope).edit().putString("discovery", pool.encode()).apply()
+    }
     fun genre(context: Context, mid: String) = CatalogueCodec.genres(context.getSharedPreferences("qq_catalogue_genres", Context.MODE_PRIVATE).getString(mid, null))
     fun saveGenre(context: Context, value: CatalogueGenre) {
         context.getSharedPreferences("qq_catalogue_genres", Context.MODE_PRIVATE).edit().putString(value.mid, CatalogueCodec.genres(value)).apply()

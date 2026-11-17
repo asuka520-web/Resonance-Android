@@ -12,6 +12,13 @@ remote control of the official QQ app), automatic favourite-first genre lookup,
 supplementary MusicBrainz data hidden from the everyday flow, bounded streaming
 cache and a redesigned UI. The user accepted this recommendation after discussing
 data usage. See `docs/BACKGROUND_RELEASE_TEST.md` for v0.9.0 acceptance.
+The user subsequently reported 278 favourites and 241 tagged tracks, asked how
+unknown genres and outside-favourite discovery work, and requested continued
+feature work. v0.10.0 adds missing-genre state/retry, account-scoped direct QQ
+relationships, automatic diverse seeds and actual recommendation queues. See
+`docs/DISCOVERY_RELEASE_TEST.md`. Direct relationship recommendations may include
+unknown genres only with explicit provenance; direction changes still require
+known genres. Never turn these relationships into inferred genre labels.
 
 Core requirements and acceptance gates: `docs/PRODUCT_REQUIREMENTS.md`.
 The main outcomes are skip-triggered style switching and current-intent similar

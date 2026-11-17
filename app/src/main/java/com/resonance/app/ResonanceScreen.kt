@@ -6,6 +6,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -136,14 +137,16 @@ private fun genreName(value: String) = when(value) {
         Glyph(type,Modifier.size((size*.52f).dp),if(accent)Ink else Cream)
     }
 }
-@Composable private fun TrackRow(song:QqCatalogueTrack, labels:Set<String>, onClick:()->Unit, current:Boolean=false, note:String="") {
+@Composable private fun TrackRow(song:QqCatalogueTrack, labels:Set<String>, onClick:()->Unit, current:Boolean=false, note:String="", genre:CatalogueGenre?=null) {
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick=onClick).padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
         AlbumCover(song,Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)))
         Column(Modifier.weight(1f).padding(horizontal=13.dp),verticalArrangement=Arrangement.spacedBy(5.dp)) {
             Text(song.name,maxLines=1,overflow=TextOverflow.Ellipsis,color=if(current)Lime else Cream,fontSize=15.sp,fontWeight=FontWeight.Medium)
             Text(note.ifBlank {song.artist},maxLines=1,overflow=TextOverflow.Ellipsis,color=Muted,fontSize=12.sp)
+            Text(if(labels.isEmpty()) GenreLookupPolicy.description(genre) else
+                labels.sorted().take(2).joinToString(" · ") {genreName(it)} + if(labels.size>2) " · +${labels.size-2}" else "",
+                maxLines=1,overflow=TextOverflow.Ellipsis,color=if(labels.isEmpty())Muted else Lime.copy(alpha=.8f),fontSize=10.sp)
         }
-        if(labels.isNotEmpty()) TinyTag(genreName(labels.first()))
         Glyph(if(current)ResonanceGlyph.WAVE else ResonanceGlyph.PLAY,Modifier.padding(start=12.dp,end=4.dp).size(21.dp),if(current)Lime else Muted)
     }
 }
@@ -152,7 +155,9 @@ private fun genreName(value: String) = when(value) {
 @Composable
 fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit, onSync:()->Unit,
     onPlay:(QqCatalogueTrack)->Unit, onToggle:()->Unit, onNext:()->Unit, onPrevious:()->Unit, onSeek:(Float)->Unit,
-    onLogout:()->Unit, onLegacy:()->Unit, onPlaylists:()->Unit, onPlaylist:(QqCataloguePlaylist)->Unit) {
+    onLogout:()->Unit, onLegacy:()->Unit, onPlaylists:()->Unit, onPlaylist:(QqCataloguePlaylist)->Unit,
+    onRetryMissing:()->Unit = {QqLibrary.retryMissing()}, onRefreshDiscovery:()->Unit = {QqLibrary.warmDiscovery(true)},
+    onPlayRecommendation:(String?)->Unit = {}) {
     val context=LocalContext.current
     val settings=remember {context.getSharedPreferences("resonance_settings",0)}
     var tab by remember {mutableIntStateOf(0)}
@@ -235,19 +240,30 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                         LinearProgressIndicator(modifier=Modifier.fillMaxWidth().height(2.dp),color=Lime,trackColor=SoftLine)
                         Text(if(library.syncing)library.message else "正在自动整理曲风 · ${library.taggedCount} 首已有资料",color=Muted,fontSize=11.sp)
                     }
+                    if(connected) item {
+                        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("收藏外候选 ${library.outsideCount} 首",color=Lime,fontSize=12.sp)
+                                if(library.discoveryMessage.isNotBlank())Text(library.discoveryMessage,color=Muted,fontSize=10.sp)
+                            }
+                            TextButton(onClick=onRefreshDiscovery,enabled=!library.discovering) {Text(if(library.discovering)"发现中…" else "发现更多",fontSize=12.sp)}
+                        }
+                    }
                     item {SectionTitle(if(library.recommendation==null)"从你的收藏开始" else "接着，听这些",if(library.recommendation==null)"查看全部" else "推荐理由",{if(library.recommendation==null)tab=1 else sources=!sources})}
                     val recommendations=library.recommendation
                     if(recommendations!=null) {
                         item {Text(recommendations.heading,color=Lime,fontSize=12.sp)}
+                        if(recommendations.picks.isNotEmpty())item {Button(onClick={onPlayRecommendation(null)}){Text("播放这批")}}
                         if(recommendations.picks.isEmpty() || sources) item {Text(recommendations.explanation,color=Muted,fontSize=12.sp,lineHeight=20.sp)}
                         items(recommendations.picks,key={it.track.mediaId}) {pick ->
                             library.allTracks.firstOrNull {"qq:${it.mid}"==pick.track.mediaId}?.let {song ->
-                                TrackRow(song,library.genres[song.mid]?.labels.orEmpty(),{onPlay(song)},song.mid==player.mid,
-                                    if(pick.unfamiliar)"新歌候选 · ${song.artist}" else song.artist)
+                                TrackRow(song,library.genres[song.mid]?.labels.orEmpty(),{onPlayRecommendation(song.mid)},song.mid==player.mid,
+                                    if(pick.unfamiliar)"新歌候选 · ${song.artist}" else song.artist,library.genres[song.mid])
+                                if(sources)Text(pick.reason,color=Muted,fontSize=10.sp)
                             }
                         }
                     } else {
-                        items(library.favorites.take(6),key={it.mid}) {song -> TrackRow(song,library.genres[song.mid]?.labels.orEmpty(),{onPlay(song)},song.mid==player.mid)}
+                        items(library.favorites.take(6),key={it.mid}) {song -> TrackRow(song,library.genres[song.mid]?.labels.orEmpty(),{onPlay(song)},song.mid==player.mid,genre=library.genres[song.mid])}
                     }
                     if(library.favorites.isEmpty()) item {Text(if(connected)"收藏正在路上，稍后就会出现在这里。" else "登录后自动同步收藏，无需逐首填写曲风。",color=Muted,fontSize=13.sp,modifier=Modifier.padding(vertical=16.dp))}
                     if(connected) {
@@ -267,14 +283,29 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                         {if(library.openedPlaylist!=null) QqLibrary.closePlaylist() else onSync()})}
                     item {OutlinedTextField(search,{search=it},modifier=Modifier.fillMaxWidth(),singleLine=true,placeholder={Text("搜索歌曲、歌手",fontSize=13.sp)},
                         leadingIcon={Glyph(ResonanceGlyph.SEARCH,Modifier.size(19.dp),Muted)},shape=RoundedCornerShape(15.dp))}
-                    item {Row(horizontalArrangement=Arrangement.spacedBy(9.dp)) {listOf("全部","已识别曲风","待补齐").forEachIndexed {i,label ->
+                    if(library.openedPlaylist==null && connected) item {
+                        Text("已有曲风 ${library.taggedCount} · 等待查询 ${library.statusCount(GenreLookupStatus.WAITING)}\n" +
+                            "待重试 ${library.statusCount(GenreLookupStatus.RETRY)} · 暂无资料 ${library.statusCount(GenreLookupStatus.UNAVAILABLE)}",
+                            color=Muted,fontSize=12.sp,lineHeight=21.sp)
+                        TextButton(onClick=onRetryMissing,enabled=!library.analyzing && library.taggedCount<library.favorites.size) {
+                            Text(if(library.analyzing)"正在自动查询…" else "重试未取得曲风的歌曲",fontSize=12.sp)
+                        }
+                    }
+                    item {Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(9.dp)) {listOf("全部","已识别曲风","待补齐","待重试","暂无资料").forEachIndexed {i,label ->
                         FilterChip(selected=filter==i,onClick={filter=i},label={Text(label,fontSize=11.sp)})
                     }}}
                     val browsing = if(library.openedPlaylist!=null) library.playlistTracks else library.favorites
                     val filtered=browsing.filter {song -> (search.isBlank() || song.name.contains(search,true) || song.artist.contains(search,true)) &&
-                        (filter==0 || (library.genres[song.mid]?.labels?.isNotEmpty()==true)==(filter==1))}
+                        when(filter) {
+                            0 -> true
+                            1 -> GenreLookupPolicy.status(library.genres[song.mid])==GenreLookupStatus.READY
+                            2 -> GenreLookupPolicy.status(library.genres[song.mid])!=GenreLookupStatus.READY
+                            3 -> GenreLookupPolicy.status(library.genres[song.mid])==GenreLookupStatus.RETRY
+                            else -> GenreLookupPolicy.status(library.genres[song.mid])==GenreLookupStatus.UNAVAILABLE
+                        }}
                     if(filtered.isEmpty()) item {Text(if(!connected)"连接 QQ 音乐，自动带回你的收藏。" else "暂无符合条件的歌曲。",color=Muted,modifier=Modifier.padding(vertical=24.dp))}
-                    items(filtered,key={it.mid}) {song ->TrackRow(song,library.genres[song.mid]?.labels.orEmpty(),{onPlay(song)},song.mid==player.mid)}
+                    items(filtered,key={it.mid}) {song ->TrackRow(song,library.genres[song.mid]?.labels.orEmpty(),{onPlay(song)},song.mid==player.mid,
+                        note=if(library.activeGenreMid==song.mid)"正在查询曲风…" else "",genre=library.genres[song.mid])}
                     item {SectionTitle("我的歌单","读取歌单",onPlaylists)}
                     items(library.playlists,key={it.id}) {list ->
                         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Panel).clickable {onPlaylist(list)}.padding(16.dp),verticalAlignment=Alignment.CenterVertically) {
@@ -301,7 +332,7 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                     if(sources) item {Text("歌曲、收藏及音源：QQ 音乐。曲风优先读取 QQ 单曲流派；缺失时查询 MusicBrainz，仅发送歌名、歌手、专辑与时长。听歌记录与登录凭据留在本机。曲库标签不等于已完成声音或情绪模型分析。",color=Muted,fontSize=12.sp,lineHeight=20.sp)}
                     item {TextButton(onClick=onLegacy) {Text("旧版监听与记录",color=Muted,fontSize=12.sp)}}
                     if(connected)item {TextButton(onClick=onLogout) {Text("退出 QQ 音乐账号",color=Color(0xFFCE9E91),fontSize=12.sp)}}
-                    item {Text("RESONANCE · 共鸣 0.9.0",color=Muted.copy(alpha=.5f),fontSize=10.sp,letterSpacing=1.5.sp,modifier=Modifier.padding(vertical=18.dp))}
+                    item {Text("RESONANCE · 共鸣 ${BuildConfig.VERSION_NAME}",color=Muted.copy(alpha=.5f),fontSize=10.sp,letterSpacing=1.5.sp,modifier=Modifier.padding(vertical=18.dp))}
                 }
             }
         }
@@ -311,7 +342,8 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                 AlbumCover(current,Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(24.dp)))
                 Text(current.name,fontSize=25.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(top=25.dp),maxLines=2,overflow=TextOverflow.Ellipsis)
                 Text(current.artist,color=Muted,fontSize=13.sp,modifier=Modifier.padding(top=8.dp,bottom=18.dp))
-                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {library.genres[current.mid]?.labels?.take(3)?.forEach {TinyTag(genreName(it),true)}}
+                Text(library.genres[current.mid]?.labels?.takeIf {it.isNotEmpty()}?.sorted()?.joinToString(" · ") {genreName(it)}
+                    ?: GenreLookupPolicy.description(library.genres[current.mid]),color=Lime,fontSize=12.sp)
                 var drag by remember {mutableStateOf<Float?>(null)}
                 Slider(value=drag?:if(player.durationMs>0)(player.positionMs.toFloat()/player.durationMs).coerceIn(0f,1f) else 0f,
                     onValueChange={drag=it},onValueChangeFinished={drag?.let(onSeek);drag=null},modifier=Modifier.padding(top=14.dp))

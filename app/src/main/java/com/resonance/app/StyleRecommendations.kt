@@ -25,18 +25,26 @@ object StyleRecommendations {
     }
 
     fun similar(anchorId: String, tracks: List<StyleTrack>, events: List<ListeningSignal>,
-                familiarIds: Set<String> = events.map { it.mediaId }.toSet()): StylePlan {
-        val anchor = tracks.firstOrNull { it.mediaId == anchorId && it.genres.isNotEmpty() }
+                familiarIds: Set<String> = events.map { it.mediaId }.toSet(), relatedIds: Set<String> = emptySet()): StylePlan {
+        val anchor = tracks.firstOrNull { it.mediaId == anchorId && (it.genres.isNotEmpty() || relatedIds.isNotEmpty()) }
             ?: return StylePlan("正在了解这首歌", "当前歌曲的曲风资料尚未就绪，自动补齐后即可推荐。")
-        val candidates = eligible(tracks, events, setOf(anchorId)).filter {
-            it.recordingId != anchor.recordingId && it.genres.intersect(anchor.genres).isNotEmpty()
+        val candidates = eligible(tracks, events, setOf(anchorId), relatedIds).filter {
+            it.recordingId != anchor.recordingId && (it.genres.intersect(anchor.genres).isNotEmpty() ||
+                (it.mediaId in relatedIds && (it.genres.isEmpty() || anchor.genres.isEmpty())))
         }
         val ranked = candidates.sortedWith(compareByDescending<StyleTrack> {
             val overlap = it.genres.intersect(anchor.genres).size.toDouble()
-            10 * overlap / it.genres.union(anchor.genres).size + preference(it, tracks, events)
+            val union = it.genres.union(anchor.genres).size
+            (if (union == 0) 0.0 else 10 * overlap / union) +
+                (if (it.mediaId in relatedIds) 2.0 else 0.0) + preference(it, tracks, events)
         }.thenBy { it.mediaId })
-        return plan("与「${anchor.name}」同曲风", "锚点曲风：${anchor.genres.joinToString()}。按曲风重合与听歌反馈排序；尚不包含声音、情绪或节奏识别。",
-            ranked, events, familiarIds = familiarIds) { track -> "共同曲风：${track.genres.intersect(anchor.genres).joinToString()}" }
+        val heading = if (anchor.genres.isEmpty()) "与「${anchor.name}」相关的歌" else "接着「${anchor.name}」听"
+        val explanation = if (anchor.genres.isEmpty()) "当前歌曲曲风未知，使用 QQ 返回的直接相关歌曲；没有推断曲风或情绪。"
+            else "锚点曲风：${anchor.genres.joinToString()}。优先曲风重合；缺标签时仅允许 QQ 直接相关候选，不将关系当成曲风。"
+        return plan(heading, explanation, ranked, events, familiarIds = familiarIds) { track ->
+            val common = track.genres.intersect(anchor.genres)
+            if (common.isNotEmpty()) "共同曲风：${common.joinToString()}" else "QQ 相关歌曲 · 曲风待补齐"
+        }
     }
 
     fun changeDirection(currentId: String, tracks: List<StyleTrack>, events: List<ListeningSignal>,
@@ -60,9 +68,9 @@ object StyleRecommendations {
             ranked, events, common, familiarIds) { "候选曲风：${it.genres.joinToString()}；与本次避开标签无交集" }
     }
 
-    private fun eligible(tracks: List<StyleTrack>, events: List<ListeningSignal>, excluded: Set<String>): List<StyleTrack> {
+    private fun eligible(tracks: List<StyleTrack>, events: List<ListeningSignal>, excluded: Set<String>, relatedIds: Set<String> = emptySet()): List<StyleTrack> {
         val recentRejected = events.takeLast(10).filter { it.category != "completed" }.map { it.mediaId }.toSet()
-        return tracks.filter { it.genres.isNotEmpty() && it.mediaId !in excluded && it.mediaId !in recentRejected }
+        return tracks.filter { (it.genres.isNotEmpty() || it.mediaId in relatedIds) && it.mediaId !in excluded && it.mediaId !in recentRejected }
             .distinctBy { it.recordingId }
     }
 

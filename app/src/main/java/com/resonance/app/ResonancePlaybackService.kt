@@ -184,7 +184,7 @@ class ResonancePlaybackService : MediaSessionService() {
                 historyScope = QqSessionManager.active?.let { CatalogueStore.scope(it.userId) }.orEmpty()
                 if (historyScope.isBlank()) return Futures.immediateFailedFuture(SecurityException("Sign in required"))
                 nextTransition = TrackTransition.USER
-                automaticQueue = false
+                automaticQueue = mediaItems.firstOrNull()?.mediaMetadata?.extras?.getBoolean(CatalogueMediaItems.FIXED_QUEUE) == true
                 return Futures.immediateFuture(mediaItems.filter { item ->
                     val mid = item.mediaId.removePrefix("qq:")
                     item.localConfiguration?.uri?.scheme == "qqtrack" && item.localConfiguration?.uri?.host == mid && QqLibrary.track(mid) != null

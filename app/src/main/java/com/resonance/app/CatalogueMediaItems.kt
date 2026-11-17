@@ -1,6 +1,7 @@
 package com.resonance.app
 
 import android.net.Uri
+import android.os.Bundle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
@@ -8,6 +9,12 @@ import androidx.media3.common.util.UnstableApi
 
 @UnstableApi
 object CatalogueMediaItems {
+    const val FIXED_QUEUE = "resonance_recommendation_batch"
+    fun recommendationItem(song: QqCatalogueTrack): MediaItem {
+        val item = item(song)
+        return item.buildUpon().setMediaMetadata(item.mediaMetadata.buildUpon()
+            .setExtras(Bundle().apply { putBoolean(FIXED_QUEUE, true) }).build()).build()
+    }
     fun item(song: QqCatalogueTrack): MediaItem = MediaItem.Builder().setMediaId("qq:${song.mid}")
         .setUri(Uri.parse("qqtrack://${song.mid}"))
         .setCustomCacheKey("${QqLibrary.state.accountScope}:${song.mid}:128")
