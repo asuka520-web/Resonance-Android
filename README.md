@@ -38,3 +38,9 @@ A local-first QQ Music companion prototype, written in Kotlin + Jetpack Compose.
 GitHub Actions assembles the debug APK on pushes to `main`. The latest test release is updated after a successful build. Check [Actions](https://github.com/asuka520-web/Resonance-Android/actions) if the release has not updated yet.
 
 For local building, use Android Studio with JDK 17 / Android SDK 35 / Gradle 8.9, or run `gradle :app:assembleDebug` if Gradle 8.9 is installed. This repository currently relies on CI's Gradle installation and does not include a Gradle wrapper.
+
+
+## Local development with Codex
+
+- Project rules: [`AGENTS.md`](AGENTS.md)
+- Windows setup, Codex local mode, Android Studio, Gradle Wrapper and device test guide: [`docs/LOCAL_DEVELOPMENT.md`](docs/LOCAL_DEVELOPMENT.md)
