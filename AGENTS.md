@@ -6,9 +6,12 @@ On 2026-11-17 the user explicitly chose **QQ Music account login and playback
 inside Resonance, similar to MineRadio**. This supersedes the original external
 QQ Music companion architecture. Android remains the product; PC is a test
 workbench. Read `docs/ACCOUNT_PLAYER_DIRECTION.md` before further feature work.
-The next gate is real login -> catalogue/playlist -> one actual track playing
-inside Resonance. Do not expand genre editors or external-session controls
-before this gate, and do not substitute UI mocks or test music for QQ playback.
+The user confirmed the v0.8.0 real-account connection gate passed on their phone.
+They then approved **Resonance-owned background playback of QQ sources** (not
+remote control of the official QQ app), automatic favourite-first genre lookup,
+supplementary MusicBrainz data hidden from the everyday flow, bounded streaming
+cache and a redesigned UI. The user accepted this recommendation after discussing
+data usage. See `docs/BACKGROUND_RELEASE_TEST.md` for v0.9.0 acceptance.
 
 Core requirements and acceptance gates: `docs/PRODUCT_REQUIREMENTS.md`.
 The main outcomes are skip-triggered style switching and current-intent similar
@@ -81,15 +84,26 @@ notification-service lifecycle. See `docs/TESTING_STRATEGY.md`.
   `style_auto_control_enabled` opt-in. Only try one supported target per
   four-skip analysis; confirm its exact MEDIA_ID playing across two polls.
   Capability flags or a successful request call alone are not playback success.
-- MusicBrainz lookups require an explicit query/recording selection and send
-  only that song's name/artist or the selected public recording UUID. Never
-  upload listening history or infer track genres from artist genres/free tags.
+- For the new catalogue, the user authorized automatic supplemental lookups.
+  QQ's exact-MID single-song genre is primary. Only missing tags may use strict
+  automatic MusicBrainz matching by name, primary artist, album and duration.
+  No unique match means unknown; never use singer genres or free-form mood tags
+  as track genres. Keep external-source disclosure/control in settings, never
+  leak QQ cookies or listening history into external requests. Legacy manual
+  lookup/export compatibility remains intact.
 - Preserve `resonance_track_features` provenance and verified recording mapping.
   A changed song name, artist or album invalidates the old feature mapping.
-- MusicBrainz is supplementary in the new product. Automatic lookup work is
-  preserved locally in `wip/automatic-genre-lookup`, not published. Do not merge
-  it as the next main milestone or make manual genre confirmation a prerequisite
-  to normal listening.
+- MusicBrainz is supplementary, not an audio provider or proof of QQ playback
+  rights. Daily listening must not require per-track manual classification.
+- The MediaSessionService owns playback/focus/queue, independently of Activity
+  lifetime. Use opaque catalogue URIs, keep signed URLs out of exported metadata
+  and cache indexes, scope audio cache keys by account, and cap audio cache at
+  100 MiB. Never bulk-download favourites for feature extraction.
+- Record explicit user transitions and actual audible elapsed time. Automatic
+  replacements, paused/stale observations, seeks, failed loads and short previews
+  must not manufacture dislikes or completed listening. Retain four-skip and
+  120-second cooldown rules. Familiarity includes actual favourites; the 30%
+  novel target must report availability honestly.
 - Notification-session MEDIA_ID rules apply to the retained legacy observer.
   New catalogue song IDs/MIDs have their own provider namespace; never equate
   them to observed legacy IDs without an explicit verified mapping.

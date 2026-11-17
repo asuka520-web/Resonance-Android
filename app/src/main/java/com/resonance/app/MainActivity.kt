@@ -72,7 +72,7 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Scaffold(topBar = {
                     Text(
-                        "Resonance · 共鸣 v0.8.0",
+                        "共鸣 · 旧版监听与记录",
                         style = MaterialTheme.typography.headlineSmall,
                         modifier = Modifier.padding(20.dp)
                     )

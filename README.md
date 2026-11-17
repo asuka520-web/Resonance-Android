@@ -1,17 +1,37 @@
 # Resonance for Android
 
-A local-first QQ Music companion prototype, written in Kotlin + Jetpack Compose.
+A local-first Android music assistant with QQ account integration, background
+playback, favourite-first genre enrichment and recommendations. Kotlin + Compose.
+
+## v0.9.0
+
+- Independent Media3 session service with background audio, system controls and
+  a bounded 100 MiB account-scoped audio cache. Audio goes directly from QQ to
+  the phone; no relay server or bulk favourite-audio download.
+- Automatic paged favourite sync and exact-MID QQ song-genre lookup. Missing
+  genres may use strict supplementary MusicBrainz matching, with disclosure and
+  control in settings rather than the daily listening flow.
+- Similar-mode recommendations combine favourites and actual QQ related-song
+  candidates. Four valid fast skips can replace the queue with another genre
+  direction, retaining 120-second cooldown and explainable unavailable states.
+- Direct listening events count actual heard time; app-driven changes, seeks,
+  errors and previews do not manufacture user feedback.
+- Redesigned For You / Favourites / Profile, mini-player, artwork, player sheet,
+  dark theme and adaptive icon. Legacy history remains available in settings.
+
+The user verified v0.8.0 account/catalogue/native playback on their phone. New
+background/system-control behaviour still needs the
+[v0.9.0 phone acceptance checklist](docs/BACKGROUND_RELEASE_TEST.md). Genre tags
+are not an acoustic/mood model; coverage and novel ratios are reported honestly.
 
 **Development direction, 2026-11-17:** the user chose QQ Music account login and
-playback **inside Resonance**. The next acceptance gate is one real account ->
-real playlist/catalogue -> one track actually playing on Android. The released
-v0.7.0 functionality remains on the legacy page. v0.8.0 adds an **unverified-on-device
-account/playback trial**, with official-site login, real-library requests and
-native foreground playback. Account presence, readable library, playback tickets
-and actual player progress are separate checks. No account credentials enter CI.
-See [the verified findings and next gate](docs/ACCOUNT_PLAYER_DIRECTION.md).
+playback **inside Resonance**, and confirmed the v0.8.0 account/catalogue/playback
+gate passed. v0.9.0 extends that connection into background listening and
+automatic recommendations. Account presence, readable library, playback tickets
+and actual player progress remain separate checks. No account credentials enter
+CI. See [the findings and acceptance history](docs/ACCOUNT_PLAYER_DIRECTION.md).
 
-## v0.7.0: phone recommendations and target-play trial
+## Legacy v0.7.0: external-player recommendations and target-play trial
 
 - Explicit MusicBrainz queries retrieve **recording-level genres** after the user checks the exact version. Missing genres stay unknown. Only selected name/artist or public recording UUID are sent; no history or lyrics are uploaded.
 - “我想继续听这类歌” recommends other locally identified songs with overlapping verified genres, using recent/long-term positive signals and repeat penalties. This is genre similarity, not acoustic/mood/tempo recognition.

@@ -9,7 +9,10 @@ class QqAccountSession(val userId: String, val cookieHeader: String, val playbac
 }
 data class QqCataloguePlaylist(val id: String, val name: String)
 data class QqCatalogueTrack(val mid: String, val mediaMid: String, val name: String,
-                            val artist: String, val album: String, val durationMs: Long)
+                            val artist: String, val album: String, val durationMs: Long,
+                            val songId: String = "", val albumMid: String = "")
+data class QqTrackPage(val tracks: List<QqCatalogueTrack>, val rawCount: Int, val total: Int?, val nextOffset: Int,
+                     val hasMore: Boolean)
 class QqConnectionException(val publicReason: String) : Exception(publicReason)
 
 /** Independent protocol mapping; see docs/ACCOUNT_PLAYER_DIRECTION.md for reference/limitations. */
@@ -42,7 +45,9 @@ object QqAccountProtocol {
                 item.optString("diss_name").ifBlank { item.optString("name", "未命名歌单") })
         }.distinctBy { it.id }
     }
-    fun tracks(raw: String, liked: Boolean): List<QqCatalogueTrack> {
+    fun tracks(raw: String, liked: Boolean): List<QqCatalogueTrack> = trackPage(raw, liked, 0, 50).tracks
+    fun trackPage(raw: String, liked: Boolean, offset: Int, limit: Int): QqTrackPage {
+        require(offset >= 0 && limit > 0)
         val obj = JSONObject(raw)
         checkCode(obj)
         val container = if (liked) obj.optJSONObject("req_0")?.also(::checkCode)?.optJSONObject("data")
@@ -52,11 +57,17 @@ object QqAccountProtocol {
             throw QqConnectionException("QQ 曲库返回 ${container.optInt("subcode")}，歌曲读取尚未通过。")
         val rows = container?.optJSONArray("songlist")
             ?: throw QqConnectionException("QQ 未返回歌曲列表；请检查授权或歌单权限。")
-        return parseTracks(rows)
+        val reportedTotal = listOf("total_song_num", "songnum", "song_count").firstNotNullOfOrNull { key ->
+            if (container.has(key) && container.optInt(key, -1) >= 0) container.optInt(key) else null
+        }
+        val next = offset + rows.length()
+        val total = reportedTotal?.takeIf { it >= next }
+        return QqTrackPage(parseTracks(rows), rows.length(), total, next,
+            rows.length() > 0 && if (total != null) next < total else rows.length() >= limit)
     }
     private fun parseTracks(rows: JSONArray): List<QqCatalogueTrack> = (0 until rows.length()).mapNotNull {
         val raw = rows.optJSONObject(it) ?: return@mapNotNull null
-        val song = raw.optJSONObject("track_info") ?: raw
+        val song = raw.optJSONObject("track_info") ?: raw.optJSONObject("track") ?: raw
         val mid = song.optString("mid").ifBlank { song.optString("songmid") }
         val name = song.optString("name").ifBlank { song.optString("songname") }
         if (!mid.matches(Regex("[A-Za-z0-9]{1,80}")) || name.isBlank()) return@mapNotNull null
@@ -65,8 +76,43 @@ object QqAccountProtocol {
         QqCatalogueTrack(mid, song.optJSONObject("file")?.optString("media_mid").orEmpty()
             .ifBlank { song.optString("strMediaMid") }.ifBlank { song.optString("media_mid") }.ifBlank { mid },
             name, artist, song.optJSONObject("album")?.optString("name").orEmpty().ifBlank { song.optString("albumname") },
-            song.optLong("interval") * 1000L)
+            song.optLong("interval") * 1000L,
+            song.optString("id").ifBlank { song.optString("songid") },
+            song.optJSONObject("album")?.optString("mid").orEmpty().ifBlank { song.optString("albummid") })
     }.distinctBy { it.mid }
+
+    fun similarSongs(raw: String): List<QqCatalogueTrack> {
+        val obj = JSONObject(raw)
+        checkCode(obj)
+        val block = obj.optJSONObject("req_0") ?: throw QqConnectionException("相似候选暂不可用。")
+        checkCode(block)
+        val data = block.optJSONObject("data") ?: throw QqConnectionException("相似候选资料缺失。")
+        if (data.optInt("retcode") != 0) throw QqConnectionException("曲库暂未提供相似候选。")
+        val rows = JSONArray()
+        data.optJSONArray("vecSong")?.let { source -> for (i in 0 until source.length()) rows.put(source.get(i)) }
+        data.optJSONArray("vecSongNew")?.let { groups ->
+            for (i in 0 until groups.length()) groups.optJSONObject(i)?.optJSONArray("songs")?.let { songs ->
+                for (j in 0 until songs.length()) rows.put(songs.get(j))
+            }
+        }
+        return parseTracks(rows).take(30)
+    }
+
+    fun songGenres(raw: String, expectedMid: String): Set<String> {
+        val obj = JSONObject(raw)
+        checkCode(obj)
+        val block = obj.optJSONObject("req_0") ?: throw QqConnectionException("QQ 未返回单曲资料。")
+        checkCode(block)
+        val data = block.optJSONObject("data") ?: throw QqConnectionException("QQ 单曲资料缺失。")
+        if (data.optJSONObject("track_info")?.optString("mid") != expectedMid)
+            throw QqConnectionException("曲风对应的歌曲 ID 不匹配，未保存。")
+        val genre = data.optJSONObject("info")?.optJSONObject("genre") ?: return emptySet()
+        val rows = genre.optJSONArray("content") ?: return emptySet()
+        return (0 until rows.length()).mapNotNull { index ->
+            rows.optJSONObject(index)?.optString("value")?.trim()
+                ?.takeIf { it.isNotBlank() && !it.all(Char::isDigit) }
+        }.toSet()
+    }
 
     fun playbackUrl(raw: String, expectedMid: String): String {
         val obj = JSONObject(raw)

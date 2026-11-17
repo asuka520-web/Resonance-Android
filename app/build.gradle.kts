@@ -10,6 +10,11 @@ val previewBuild = providers.gradleProperty("resonancePreview").map { it.toBoole
 val cloudDebugKeystore = providers.environmentVariable("RESONANCE_DEBUG_KEYSTORE").orNull
 val sharedSigningFile = cloudDebugKeystore?.let { file(it) }
     ?: rootProject.file(".ci-signing/debug.keystore")
+val robolectricSdk by configurations.creating
+val prepareRobolectricSdk by tasks.registering(Copy::class) {
+    from(robolectricSdk)
+    into(layout.buildDirectory.dir("robolectric-sdk"))
+}
 android {
     namespace = "com.resonance.app"
     compileSdk = 35
@@ -19,8 +24,8 @@ android {
         manifestPlaceholders["listenerLabel"] = if (previewBuild) "Resonance 预览版媒体监听" else "Resonance 媒体监听"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.8.0"
+        versionCode = 11
+        versionName = "0.9.0"
     }
     buildTypes {
         release {
@@ -43,6 +48,13 @@ android {
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
     sourceSets.getByName("test").resources.srcDir(rootProject.file("test-fixtures"))
+    testOptions.unitTests.isIncludeAndroidResources = true
+    testOptions.unitTests.all {
+        it.dependsOn(prepareRobolectricSdk)
+        it.maxHeapSize = "1536m"
+        it.systemProperty("robolectric.dependency.dir", layout.buildDirectory.dir("robolectric-sdk").get().asFile.absolutePath)
+        it.systemProperty("robolectric.pixelCopyRenderMode", "hardware")
+    }
 }
 tasks.configureEach {
     if (name == "validateSigningDebug" || name == "validateSigningRelease") {
@@ -67,7 +79,14 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("androidx.media3:media3-exoplayer:1.6.1")
+    implementation("androidx.media3:media3-session:1.6.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation(platform("androidx.compose:compose-bom:2024.10.01"))
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    add(robolectricSdk.name, "org.robolectric:android-all-instrumented:15-robolectric-12650502-i7")
 }

@@ -82,6 +82,7 @@ jobs:
             app/build/test-results/testDebugUnitTest
             app/build/reports/tests/testDebugUnitTest
             app/build/reports/lint-results-debug.*
+            app/build/outputs/ui-review/*.png
           if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:

@@ -24,9 +24,10 @@ object StyleRecommendations {
         else ListeningSignal(id, category)
     }
 
-    fun similar(anchorId: String, tracks: List<StyleTrack>, events: List<ListeningSignal>): StylePlan {
+    fun similar(anchorId: String, tracks: List<StyleTrack>, events: List<ListeningSignal>,
+                familiarIds: Set<String> = events.map { it.mediaId }.toSet()): StylePlan {
         val anchor = tracks.firstOrNull { it.mediaId == anchorId && it.genres.isNotEmpty() }
-            ?: return StylePlan("同曲风推荐", "当前歌曲还没有已核对的录音级曲风，请先查询并核对。")
+            ?: return StylePlan("正在了解这首歌", "当前歌曲的曲风资料尚未就绪，自动补齐后即可推荐。")
         val candidates = eligible(tracks, events, setOf(anchorId)).filter {
             it.recordingId != anchor.recordingId && it.genres.intersect(anchor.genres).isNotEmpty()
         }
@@ -35,10 +36,11 @@ object StyleRecommendations {
             10 * overlap / it.genres.union(anchor.genres).size + preference(it, tracks, events)
         }.thenBy { it.mediaId })
         return plan("与「${anchor.name}」同曲风", "锚点曲风：${anchor.genres.joinToString()}。按曲风重合与听歌反馈排序；尚不包含声音、情绪或节奏识别。",
-            ranked, events) { track -> "共同曲风：${track.genres.intersect(anchor.genres).joinToString()}" }
+            ranked, events, familiarIds = familiarIds) { track -> "共同曲风：${track.genres.intersect(anchor.genres).joinToString()}" }
     }
 
-    fun changeDirection(currentId: String, tracks: List<StyleTrack>, events: List<ListeningSignal>): StylePlan {
+    fun changeDirection(currentId: String, tracks: List<StyleTrack>, events: List<ListeningSignal>,
+                        familiarIds: Set<String> = events.map { it.mediaId }.toSet()): StylePlan {
         val rejected = events.takeLast(4)
         if (rejected.size != 4 || rejected.any { it.category != "fast" })
             return StylePlan("换方向", "需要连续四次有效快速跳过。")
@@ -55,7 +57,7 @@ object StyleRecommendations {
             it.genres.intersect(common).isEmpty() && it.recordingId !in rejectedRecordings
         }.sortedWith(compareByDescending<StyleTrack> { preference(it, tracks, events) }.thenBy { it.mediaId })
         return plan("四次快跳：尝试其他曲风", "本次暂时避开：${common.joinToString()}（四首中至少三首共有）。不永久屏蔽这些曲风。",
-            ranked, events, common) { "候选曲风：${it.genres.joinToString()}；与本次避开标签无交集" }
+            ranked, events, common, familiarIds) { "候选曲风：${it.genres.joinToString()}；与本次避开标签无交集" }
     }
 
     private fun eligible(tracks: List<StyleTrack>, events: List<ListeningSignal>, excluded: Set<String>): List<StyleTrack> {
@@ -74,10 +76,11 @@ object StyleRecommendations {
     }
 
     private fun plan(heading: String, explanation: String, ranked: List<StyleTrack>, events: List<ListeningSignal>,
-                     rejected: Set<String> = emptySet(), reason: (StyleTrack) -> String): StylePlan {
+                     rejected: Set<String> = emptySet(), familiarIds: Set<String> = events.map { it.mediaId }.toSet(),
+                     reason: (StyleTrack) -> String): StylePlan {
         if (ranked.isEmpty()) return StylePlan(heading,
-            "$explanation\n本机曲库里暂无符合条件的其他歌曲。请先播放、识别并补齐更多歌曲的曲风；没有全量 QQ 曲库接入。", rejectedGenres = rejected)
-        val known = events.map { it.mediaId }.toSet()
+            "$explanation\n当前曲库暂没有符合条件的其他歌曲，资料补齐后再试。", rejectedGenres = rejected)
+        val known = familiarIds + events.map { it.mediaId }
         val familiar = ranked.filter { it.mediaId in known }
         val exploration = ranked.filter { it.mediaId !in known }
         val size = minOf(10, ranked.size)
@@ -85,7 +88,7 @@ object StyleRecommendations {
         val selected = (familiar.take(size - targetExplore) + exploration.take(targetExplore)).toMutableList()
         ranked.filter { it !in selected }.take(size - selected.size).forEach { selected.add(it) }
         val actualExplore = selected.count { it.mediaId !in known }
-        val mix = "本批 ${selected.size} 首：本机有记录 ${selected.size - actualExplore} 首、尚无记录 $actualExplore 首。目标 70% / 30%，按可用候选补足；无记录不代表你从未听过。"
+        val mix = "本批 ${selected.size} 首：熟悉候选 ${selected.size - actualExplore} 首、尚无记录 $actualExplore 首。目标 70% / 30%，按可用候选补足；无记录不代表你从未听过。"
         return StylePlan(heading, "$explanation\n$mix", selected.map { StylePick(it, reason(it), it.mediaId !in known) }, rejected)
     }
 }
