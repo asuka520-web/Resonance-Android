@@ -7,7 +7,10 @@ The main outcomes are skip-triggered style switching and current-intent similar
 song recommendations on Android. Artist statistics, local scores, PC tools and
 test counts are supporting work, not completion of these outcomes. Verify
 catalogue/features and target-song playback feasibility before expanding UI.
-Resonance is a local-first Android companion for QQ Music. It observes QQ Music's Android MediaSession, records inferred listening behavior locally, and provides diagnostics and preliminary per-track preference summaries.
+Resonance is a local-first Android companion for QQ Music. v0.7.0 adds opt-in
+MusicBrainz recording-genre lookup, genre-based recommendations over locally
+identified songs, and public MediaSession target-play requests with confirmation.
+QQ target playback remains device-unverified until tested on the user's phone.
 
 Android is the primary product. `desktop/` is a validation companion, not a
 second product roadmap. Keep behavior contracts in `test-fixtures/` and execute
@@ -59,7 +62,16 @@ notification-service lifecycle. See `docs/TESTING_STRATEGY.md`.
 - Four consecutive fast skips triggers analysis; cooldown is 120 seconds.
 - Current behavior scoring is heuristic: completed +2, partial -1, fast skip -3. Label it as a heuristic, not AI or genre understanding.
 - Current short-term view uses latest 20 events; long-term view uses latest 500 events.
-- Auto/recommend mode toggles are UI/settings only until actual QQ Music playback control is implemented. Do not imply that the app controls QQ Music today.
+- Legacy `resonance_settings/auto` is retained but must not enable playback.
+  Actual automatic control uses the separate default-off
+  `style_auto_control_enabled` opt-in. Only try one supported target per
+  four-skip analysis; confirm its exact MEDIA_ID playing across two polls.
+  Capability flags or a successful request call alone are not playback success.
+- MusicBrainz lookups require an explicit query/recording selection and send
+  only that song's name/artist or the selected public recording UUID. Never
+  upload listening history or infer track genres from artist genres/free tags.
+- Preserve `resonance_track_features` provenance and verified recording mapping.
+  A changed song name, artist or album invalidates the old feature mapping.
 - All listening history and confirmed song metadata remain local unless the user explicitly opts into a future sync feature.
 
 ## Implementation quality

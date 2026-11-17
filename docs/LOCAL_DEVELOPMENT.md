@@ -107,9 +107,13 @@ Ask Codex:
 - Background the app and verify listening events continue to be recorded.
 - Verify existing history and song labels survived the update.
 
-## 9. Data and integration limitations
+## 9. v0.7.0 core feature checks and limits
+
+See [the phone acceptance checklist](CORE_FEATURE_TEST.md). Run
+`:app:testDebugUnitTest :app:lintDebug :app:assembleDebug` before release.
 
 - QQ Music metadata semantics vary by app version and playback surface. The diagnostics screen is observational only.
-- No verified official/public QQ Music API for arbitrary song lookup, similarity search, or playback control has been integrated.
-- The current score is a simple heuristic, not machine-learning genre recognition.
-- Automatic queue replacement and the 70/30 discovery mix are future work.
+- The public Android MediaSession target-play adapter is implemented, but QQ Music's acceptance must be verified on the phone. Full QQ catalogue search and arbitrary queue replacement remain unavailable.
+- MusicBrainz recording genres require explicit query/selection and have incomplete coverage. This is not audio/mood/tempo inference.
+- The new default-off automatic control key is `style_auto_control_enabled`; never activate it from the legacy `auto` value. One eligible request only, exact-target confirmation, ten-second timeout, no next-song fallback.
+- The 70/30 candidate strategy uses actual locally tagged songs, falls back when one pool is short, and reports the resulting mix. It does not establish access to unseen QQ catalogue songs.

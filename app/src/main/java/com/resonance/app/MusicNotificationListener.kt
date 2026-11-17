@@ -34,7 +34,8 @@ data class MusicSnapshot(
     val diagnostics: MetadataDiagnostics = MetadataDiagnostics(),
     val historyRevision: Long = 0L,
     val metadataRevision: Long = 0L,
-    val metadataStatus: String = "等待 QQ 音乐歌曲信息"
+    val metadataStatus: String = "等待 QQ 音乐歌曲信息",
+    val control: QqControlSnapshot = QqControlSnapshot()
 )
 
 object MusicState {
@@ -91,6 +92,7 @@ class MusicNotificationListener : NotificationListenerService() {
         super.onDestroy()
     }
     private fun resetReading(reason: String) {
+        QqPlayback.disconnect(reason)
         tracker.suspendObservation(reason)
         metadataResolver.reset()
         metadataStatus = reason
@@ -164,8 +166,16 @@ class MusicNotificationListener : NotificationListenerService() {
         resolution.song?.let {
             if (SongInfoStore.saveAutomatic(this, it)) metadataRevision++
         }
-        tracker.observe(PlaybackObservation(id, position, duration, playing, now))?.let { event ->
+        val controlledTransition = QqPlayback.pending
+        QqPlayback.observe(qq, id, playing, now)
+        val previousAnalyses = tracker.analysisCount
+        if (controlledTransition) {
+            tracker.suspendObservation("正在确认推荐播放，未作为负反馈")
+        } else tracker.observe(PlaybackObservation(id, position, duration, playing, now))?.let { event ->
             recordEvent(event.mediaId, event.playedMs, event.durationMs, event.category)
+        }
+        if (tracker.analysisCount > previousAnalyses) {
+            StyleSession.changeDirection(this, id.orEmpty(), automaticTrigger = true)
         }
         publish(if (id != null) "媒体 ID：$id" else "QQ 音乐正在播放（缺少稳定媒体 ID）")
     }
@@ -195,6 +205,6 @@ class MusicNotificationListener : NotificationListenerService() {
             }
         }
         MusicState.publish(MusicSnapshot(title, tracker.consecutiveFastSkips, tracker.notice, fast, partial, completed,
-            diagnostics, historyRevision, metadataRevision, metadataStatus))
+            diagnostics, historyRevision, metadataRevision, metadataStatus, QqPlayback.snapshot()))
     }
 }

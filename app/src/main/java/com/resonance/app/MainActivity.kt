@@ -22,11 +22,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             val context = this@MainActivity
-            val settings = remember { getSharedPreferences("resonance_settings", Context.MODE_PRIVATE) }
             val legacyLabels = remember { getSharedPreferences("resonance_song_labels", Context.MODE_PRIVATE) }
             val historyPrefs = remember { getSharedPreferences("resonance_history", Context.MODE_PRIVATE) }
 
-            var automaticMode by remember { mutableStateOf(settings.getBoolean("auto", false)) }
             var snapshot by remember { mutableStateOf(MusicSnapshot("等待 QQ 音乐播放", 0, "等待歌曲切换")) }
             var editedName by remember { mutableStateOf("") }
             var editedArtist by remember { mutableStateOf("") }
@@ -37,6 +35,7 @@ class MainActivity : ComponentActivity() {
             var showDiagnostics by remember { mutableStateOf(false) }
             var showProfile by remember { mutableStateOf(false) }
             var showHistory by remember { mutableStateOf(false) }
+            var showSongEditor by remember { mutableStateOf(false) }
 
             val diagnostics = snapshot.diagnostics
             val currentId = diagnostics.mediaId.ifBlank {
@@ -64,7 +63,6 @@ class MainActivity : ComponentActivity() {
                     editedAlbum = info?.album.orEmpty()
                 }
             }
-            LaunchedEffect(automaticMode) { MusicState.autoMode = automaticMode }
             DisposableEffect(Unit) {
                 val listener: (MusicSnapshot) -> Unit = { snapshot = it }
                 MusicState.subscribe(listener)
@@ -74,7 +72,7 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Scaffold(topBar = {
                     Text(
-                        "Resonance · 共鸣 v0.6.2",
+                        "Resonance · 共鸣 v0.7.0",
                         style = MaterialTheme.typography.headlineSmall,
                         modifier = Modifier.padding(20.dp)
                     )
@@ -95,6 +93,13 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 Text(snapshot.metadataStatus + "；不会使用可能是歌词的 TITLE 自动填充。")
                             }
+                        }
+                        RecommendationPanel(info, snapshot)
+                        if (currentId.isNotBlank()) {
+                            OutlinedButton(onClick = { showSongEditor = !showSongEditor }) {
+                                Text(if (showSongEditor) "收起歌曲信息编辑" else "核实 / 修改歌曲信息")
+                            }
+                            if (showSongEditor) {
                             OutlinedTextField(
                                 value = editedName, onValueChange = { editedName = it; editorTouched = true },
                                 label = { Text("歌曲名称（请核实）") }, singleLine = true,
@@ -119,6 +124,7 @@ class MainActivity : ComponentActivity() {
                                     savedRevision++
                                 }
                             ) { Text("确认并保存歌曲信息") }
+                            }
                         }
 
                         HorizontalDivider()
@@ -174,7 +180,7 @@ class MainActivity : ComponentActivity() {
                             ProfileSection("长期偏好 · 最近最多 500 条", longTerm) { id ->
                                 SongInfoStore.get(context, id)?.name ?: id
                             }
-                            Text("这是单曲行为画像，不是已识别曲风，也没有连接推荐曲库。")
+                            Text("这是单曲行为评分；曲风推荐单独使用已核对的公开曲库标签。")
                         }
 
                         Button(onClick = { showHistory = !showHistory; historyRevision++ }) {
@@ -207,6 +213,7 @@ class MainActivity : ComponentActivity() {
                                 .put("events", history)
                                 .put("songLabels", labels)
                                 .put("songInfo", SongInfoStore.exportJson(context))
+                                .put("trackFeatures", TrackFeatureStore.exportJson(context))
                                 .put("exportedAt", System.currentTimeMillis())
                                 .toString(2)
                             val send = Intent(Intent.ACTION_SEND)
@@ -215,23 +222,11 @@ class MainActivity : ComponentActivity() {
                         }) { Text("分享 / 导出听歌记录 JSON") }
 
                         HorizontalDivider()
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("自动模式")
-                            Switch(checked = automaticMode, onCheckedChange = {
-                                automaticMode = it
-                                settings.edit().putBoolean("auto", it).apply()
-                            })
-                        }
-                        Text(
-                            if (automaticMode) "自动模式：只分析行为，尚不会控制 QQ 音乐播放"
-                            else "推荐模式：只分析行为，暂不干预播放"
-                        )
-                        Text("陌生歌曲探索：目标为 30%，尚未接入真实推荐接口。")
                         OutlinedButton(onClick = {
                             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                         }) { Text("查看通知读取权限") }
                         Text(
-                            "继续保留 v0.5 已验证的后台监听、行为记录和手动标注。没有上传听歌历史的操作。",
+                            "听歌历史保存在本机。公开曲库查询仅在你点击查询时进行。",
                             style = MaterialTheme.typography.bodySmall
                         )
                     }

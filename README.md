@@ -2,6 +2,17 @@
 
 A local-first QQ Music companion prototype, written in Kotlin + Jetpack Compose.
 
+## v0.7.0: phone recommendations and target-play trial
+
+- Explicit MusicBrainz queries retrieve **recording-level genres** after the user checks the exact version. Missing genres stay unknown. Only selected name/artist or public recording UUID are sent; no history or lyrics are uploaded.
+- “我想继续听这类歌” recommends other locally identified songs with overlapping verified genres, using recent/long-term positive signals and repeat penalties. This is genre similarity, not acoustic/mood/tempo recognition.
+- Four consecutive fast skips trigger a different-direction plan, retaining the 120-second cooldown. All four rejected tracks need verified genres and a label shared by at least three; mixed/unknown styles do not become fabricated intent.
+- An available-candidate 70/30 familiar/exploration mix reports actual counts. Exploration means no **local event history**, not guaranteed globally unheard music.
+- Public QQ MediaSession queue/action inspection, target-play requests and exact-ID playback confirmation are implemented. Confirmation requires the target playing across two polls; requests time out after 10 seconds without retry loops. A **new default-off** setting permits one automatic target per eligible skip analysis. Legacy mode settings do not activate control.
+- **QQ target playback is not yet verified on the user's phone.** Recommendations cover the local identified/tagged library; no full QQ catalogue or audio model is connected.
+
+[Phone acceptance steps](docs/CORE_FEATURE_TEST.md) · [Core requirements and remaining work](docs/PRODUCT_REQUIREMENTS.md)
+
 ## Windows PC companion
 
 **Android is the main product; PC is the validation workbench.** See the
@@ -20,11 +31,11 @@ MEDIA_ID through this API, so live recording requires explicit start/end;
 metadata/title changes never automatically create listening events. PC testing
 does not replace Android notification-permission and background-service tests.
 
-## v0.6.2 test features
+## Retained identification and listening features
 
 - Device-validated QQ Music `ARTIST` composites (`song name-artist`) are parsed and cached automatically after at least three observations spanning 2.4 seconds.
 - Automatic metadata has explicit `qq-session-artist` provenance and separate storage; existing manual/legacy information always wins. Ambiguous formats remain manual, and same-ID identity changes invalidate automatic information.
-- TITLE and DISPLAY_TITLE are never used for automatic identity or name caching. This does not implement genre classification, recommendation or target-song playback.
+- TITLE and DISPLAY_TITLE are never used for automatic identity or name caching.
 
 - Android listening rules now have JVM regression tests and a shared PC contract.
 - Paused, disconnected, stale or identity-less observations do not infer skips.
@@ -39,7 +50,7 @@ does not replace Android notification-permission and background-service tests.
 - Verified, user-confirmed song labels and optional artist/album, cached on the device; v0.4/v0.5 manual labels remain readable.
 - **Media metadata diagnostics**: raw session fields, position, field change flags and automatic-reading status. Raw fields remain diagnostic; only the device-validated composite format can produce automatically cached metadata with explicit provenance.
 - Separate behavior scores for the **latest 20 events** and **latest 500 events**. Completed +2 / partial -1 / fast skip -3.
-- Latest 10 history items, local JSON export (v3 includes songInfo), mode switch persistence.
+- Latest 10 history items, compatible local JSON export (v3 with songInfo and optional trackFeatures).
 
 ## One-round manual test
 
@@ -48,16 +59,16 @@ does not replace Android notification-permission and background-service tests.
 3. Switch to another song and confirm its MEDIA_ID changes, with no lyric-based fake skips.
 4. Confirm a song name/artist/album, switch away and back; ensure the manually verified information is restored.
 5. Produce a few fast skips and longer listens; compare latest 20 and 500 listening profiles, then check behavior history.
-6. Export JSON and verify `schemaVersion=3`, `events`, `songLabels`, and `songInfo`.
+6. Export JSON and verify `schemaVersion=3`, `events`, `songLabels`, `songInfo` and optional `trackFeatures`.
 7. Background the app, play music, return to the app and verify that recent events were recorded.
 
 ## Known limitations
 
 - QQ Music may put live lyrics in `TITLE`. A non-empty field is not enough to authenticate a song name. v0.6.2 only auto-caches the stable `song name-artist` ARTIST format verified by the user on their device; unsupported, ambiguous or changing formats require manual confirmation. TITLE and DISPLAY_TITLE are not automatic name sources.
-- No verified authorized QQ Music song-lookup / similarity / arbitrary playback API has been integrated. No true 70/30 recommendation queue or automatic replacement of QQ Music playback.
+- No full QQ catalogue integration or verified arbitrary playback endpoint is available. Public Android transport requests may be unsupported or ignored by QQ Music; capability declarations alone do not establish success. See the phone tests above.
 - Skip recognition is an estimate derived from playback position at track transition; repeat, seeking, paused or unusual sessions can cause imperfect classification.
-- Current insights are based on **individual songs and observed behavior**, not actual genre or mood inference.
-- Raw diagnostic lyric text is displayed in memory, not saved into song records or exported. History, manually confirmed information and parsed automatic metadata are stored on-device, with source preserved.
+- Behavior scores remain heuristics. Genre recommendations use explicitly matched community recording tags with incomplete coverage; mood, tempo, audio embeddings and acoustic classification remain unimplemented.
+- Raw diagnostic lyric text is displayed in memory, not saved into song records or exported. History, confirmed metadata and verified recording-genre mappings remain on-device; explicitly requested public lookups send only selected query terms.
 
 ## APK
 
