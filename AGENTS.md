@@ -1,7 +1,19 @@
 # AGENTS.md — Resonance Android
 
 ## Project purpose
+
+Core requirements and acceptance gates: `docs/PRODUCT_REQUIREMENTS.md`.
+The main outcomes are skip-triggered style switching and current-intent similar
+song recommendations on Android. Artist statistics, local scores, PC tools and
+test counts are supporting work, not completion of these outcomes. Verify
+catalogue/features and target-song playback feasibility before expanding UI.
 Resonance is a local-first Android companion for QQ Music. It observes QQ Music's Android MediaSession, records inferred listening behavior locally, and provides diagnostics and preliminary per-track preference summaries.
+
+Android is the primary product. `desktop/` is a validation companion, not a
+second product roadmap. Keep behavior contracts in `test-fixtures/` and execute
+them against both Android's Kotlin rules and the PC validation implementation.
+Desktop event replay is read-only and does not reproduce Android permissions or
+notification-service lifecycle. See `docs/TESTING_STRATEGY.md`.
 
 ## Before editing
 - Read `README.md` and `docs/LOCAL_DEVELOPMENT.md`.
@@ -17,7 +29,8 @@ Resonance is a local-first Android companion for QQ Music. It observes QQ Music'
 - compileSdk / target SDK: 35
 - minSdk: 26
 - Main module: `:app`
-- Build (Windows): `.\gradlew.bat :app:assembleDebug`\n- Build (macOS/Linux): `./gradlew :app:assembleDebug`
+- Build (Windows): `.\gradlew.bat :app:assembleDebug`
+- Build (macOS/Linux): `./gradlew :app:assembleDebug`
 - APK output: `app/build/outputs/apk/debug/app-debug.apk`
 
 ## Non-negotiable data correctness rules

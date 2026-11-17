@@ -2,7 +2,31 @@
 
 A local-first QQ Music companion prototype, written in Kotlin + Jetpack Compose.
 
-## v0.6 test features
+## Windows PC companion
+
+**Android is the main product; PC is the validation workbench.** See the
+[mobile-first testing strategy](docs/TESTING_STRATEGY.md).
+
+Pushes to `main` build both the Android APK and the Windows PC validator.
+[GitHub Actions](https://github.com/asuka520-web/Resonance-Android/actions)
+contains build results; successful builds upload downloads to the
+[latest test release](https://github.com/asuka520-web/Resonance-Android/releases/tag/latest-test).
+
+A local Windows test companion is available in [`desktop/`](desktop/README.md).
+It provides read-only Windows media-session diagnostics, manually confirmed
+listening records, 20/500-event behavior profiles, Android JSON import/export,
+and an isolated simulation mode. Windows does not expose Android's stable
+MEDIA_ID through this API, so live recording requires explicit start/end;
+metadata/title changes never automatically create listening events. PC testing
+does not replace Android notification-permission and background-service tests.
+
+## v0.6.1 test features
+
+- Android listening rules now have JVM regression tests and a shared PC contract.
+- Paused, disconnected, stale or identity-less observations do not infer skips.
+- Per-song duration/progress cannot leak into the next song; the first four skips can trigger immediately.
+- The history display and JSON export refresh even when the 500-event cap keeps category totals unchanged.
+- PC can replay phone JSON read-only and compare stored categories with the rules.
 
 - Background QQ Music MediaSession monitoring through Android notification access.
 - Song transitions identified by stable `METADATA_KEY_MEDIA_ID`, **never by the changing `TITLE` field**.
@@ -37,7 +61,7 @@ A local-first QQ Music companion prototype, written in Kotlin + Jetpack Compose.
 
 GitHub Actions assembles the debug APK on pushes to `main`. The latest test release is updated after a successful build. Check [Actions](https://github.com/asuka520-web/Resonance-Android/actions) if the release has not updated yet.
 
-For local building, use Android Studio with JDK 17 / Android SDK 35 / Gradle 8.9, or run `gradle :app:assembleDebug` if Gradle 8.9 is installed. This repository currently relies on CI's Gradle installation and does not include a Gradle wrapper.
+For local building, use JDK 17 and Android SDK 35 with the included Gradle 8.9 Wrapper. On Windows, run `.\gradlew.bat :app:assembleDebug`; on macOS/Linux, run `./gradlew :app:assembleDebug`. No separate Gradle installation is required. See the [local development guide](docs/LOCAL_DEVELOPMENT.md) for setup and device checks.
 
 
 ## Local development with Codex

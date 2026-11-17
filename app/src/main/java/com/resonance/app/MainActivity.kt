@@ -44,7 +44,7 @@ class MainActivity : ComponentActivity() {
             val info = remember(currentId, savedRevision) {
                 if (currentId.isBlank()) null else SongInfoStore.get(context, currentId)
             }
-            val history = remember(historyRevision, snapshot.fast, snapshot.partial, snapshot.completed) {
+            val history = remember(historyRevision, snapshot.historyRevision, snapshot.fast, snapshot.partial, snapshot.completed) {
                 try { JSONArray(historyPrefs.getString("events", "[]")) } catch (_: Exception) { JSONArray() }
             }
             val recent = remember(history) { ListeningInsights.fromEvents(history, 20) }
@@ -65,7 +65,7 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Scaffold(topBar = {
                     Text(
-                        "Resonance · 共鸣 v0.6",
+                        "Resonance · 共鸣 v0.6.1",
                         style = MaterialTheme.typography.headlineSmall,
                         modifier = Modifier.padding(20.dp)
                     )
@@ -193,6 +193,7 @@ class MainActivity : ComponentActivity() {
                             }
                             val exported = JSONObject()
                                 .put("schemaVersion", 3)
+                                .put("platform", "android")
                                 .put("events", history)
                                 .put("songLabels", labels)
                                 .put("songInfo", SongInfoStore.exportJson(context))

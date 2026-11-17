@@ -1,0 +1,65 @@
+name: Build Resonance PC Validator
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: resonance-pc-latest
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            desktop/requirements.txt
+            desktop/requirements-build.txt
+      - name: Install build dependencies
+        run: python -m pip install -r desktop/requirements-build.txt
+      - name: Test and package PC validator
+        shell: pwsh
+        run: |
+          ./desktop/build.ps1 -Python python -AppName Resonance-PC-Validator
+      - name: Prepare portable download
+        shell: pwsh
+        run: |
+          $bundle = Join-Path $env:RUNNER_TEMP 'Resonance-PC'
+          New-Item -ItemType Directory -Path $bundle -Force | Out-Null
+          Copy-Item -LiteralPath desktop/dist/Resonance-PC-Validator.exe -Destination $bundle
+          $guide = Get-Content -LiteralPath desktop/README.md -Raw -Encoding utf8
+          $guide = $guide.Replace('`Resonance-PC.exe`', '`Resonance-PC-Validator.exe`')
+          Set-Content -LiteralPath (Join-Path $bundle 'README.md') -Value $guide -Encoding utf8
+          Copy-Item -LiteralPath test-fixtures/phone-export-example.json -Destination $bundle
+          Copy-Item -LiteralPath docs/TESTING_STRATEGY.md,docs/PRODUCT_REQUIREMENTS.md -Destination $bundle
+          Compress-Archive -Path $bundle -DestinationPath Resonance-PC-Windows-x64.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Resonance-PC-Windows-x64
+          path: Resonance-PC-Windows-x64.zip
+          if-no-files-found: error
+      - name: Publish PC download
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view latest-test *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create latest-test --title 'Resonance 最新测试版' --notes '自动构建的 Android 与 PC 测试版本。'
+            if ($LASTEXITCODE -ne 0) {
+              gh release view latest-test
+              if ($LASTEXITCODE -ne 0) { throw 'Could not find or create test release.' }
+            }
+          }
+          gh release upload latest-test Resonance-PC-Windows-x64.zip --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'PC release upload failed.' }

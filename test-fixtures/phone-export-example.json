@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 3,
+  "platform": "android",
+  "simulation": true,
+  "events": [
+    {"mediaId": "fixture:android:a", "playedMs": 8000, "durationMs": 180000, "category": "fast", "timestamp": 1794891600000},
+    {"mediaId": "fixture:android:b", "playedMs": 8000, "durationMs": 180000, "category": "fast", "timestamp": 1794891610000},
+    {"mediaId": "fixture:android:c", "playedMs": 8000, "durationMs": 180000, "category": "fast", "timestamp": 1794891620000},
+    {"mediaId": "fixture:android:d", "playedMs": 8000, "durationMs": 180000, "category": "fast", "timestamp": 1794891630000},
+    {"mediaId": "fixture:android:a", "playedMs": 170000, "durationMs": 180000, "category": "completed", "timestamp": 1794891810000},
+    {"mediaId": "fixture:android:b", "playedMs": 60000, "durationMs": 180000, "category": "partial", "timestamp": 1794891880000}
+  ],
+  "songLabels": {
+    "fixture:android:a": "示例歌曲 A",
+    "fixture:android:b": "示例歌曲 B",
+    "fixture:android:c": "示例歌曲 C",
+    "fixture:android:d": "示例歌曲 D"
+  },
+  "songInfo": {},
+  "note": "人工构造的 Android v3 格式样本，仅供只读回放，不是真实手机数据。"
+}

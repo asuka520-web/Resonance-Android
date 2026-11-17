@@ -1,0 +1,151 @@
+{
+  "description": "Synthetic contract fixtures, not real listening history. Times are monotonic milliseconds.",
+  "classifications": [
+    {"positionMs": -1, "durationMs": 180000, "expected": null},
+    {"positionMs": 0, "durationMs": 0, "expected": null},
+    {"positionMs": 14999, "durationMs": 180000, "expected": "fast"},
+    {"positionMs": 15000, "durationMs": 180000, "expected": "partial"},
+    {"positionMs": 125999, "durationMs": 180000, "expected": "partial"},
+    {"positionMs": 126000, "durationMs": 180000, "expected": "completed"},
+    {"positionMs": 9999, "durationMs": 20000, "expected": "fast"},
+    {"positionMs": 10000, "durationMs": 20000, "expected": "completed"},
+    {"positionMs": 181000, "durationMs": 180000, "expected": "completed"}
+  ],
+  "cases": [
+    {
+      "name": "lyrics_and_duplicate_polls",
+      "steps": [
+        {"id": "a", "positionMs": 1000, "atMs": 1000, "title": "lyric one"},
+        {"id": "a", "positionMs": 8000, "atMs": 2000, "title": "lyric two"},
+        {"id": "b", "positionMs": 0, "atMs": 3000},
+        {"id": "b", "positionMs": 0, "atMs": 4000}
+      ],
+      "events": [{"mediaId": "a", "playedMs": 8000, "durationMs": 180000, "category": "fast"}],
+      "streak": 1, "analysisCount": 0
+    },
+    {
+      "name": "paused_switch_is_not_skip",
+      "steps": [
+        {"id": "a", "positionMs": 8000, "atMs": 1000},
+        {"id": "a", "positionMs": 8000, "atMs": 2000, "playing": false},
+        {"id": "b", "positionMs": 0, "atMs": 3000}
+      ],
+      "events": [], "streak": 0, "analysisCount": 0
+    },
+    {
+      "name": "missing_id_does_not_borrow_progress",
+      "steps": [
+        {"id": "a", "positionMs": 8000, "atMs": 1000},
+        {"id": null, "positionMs": 170000, "atMs": 2000},
+        {"id": "b", "positionMs": 0, "atMs": 3000}
+      ],
+      "events": [], "streak": 0, "analysisCount": 0
+    },
+    {
+      "name": "session_disconnect_is_not_skip",
+      "steps": [
+        {"id": "a", "positionMs": 8000, "atMs": 1000},
+        {"disconnect": true},
+        {"id": "b", "positionMs": 0, "atMs": 3000}
+      ],
+      "events": [], "streak": 0, "analysisCount": 0
+    },
+    {
+      "name": "new_song_missing_duration_does_not_inherit_old_duration",
+      "steps": [
+        {"id": "a", "positionMs": 8000, "atMs": 1000},
+        {"id": "b", "positionMs": 60000, "durationMs": 0, "atMs": 2000},
+        {"id": "c", "positionMs": 0, "atMs": 3000}
+      ],
+      "events": [{"mediaId": "a", "playedMs": 8000, "durationMs": 180000, "category": "fast"}],
+      "streak": 0, "analysisCount": 0
+    },
+    {
+      "name": "stale_observation_15000ms_is_rejected",
+      "steps": [
+        {"id": "a", "positionMs": 8000, "atMs": 1000},
+        {"id": "b", "positionMs": 0, "atMs": 16000}
+      ],
+      "events": [], "streak": 0, "analysisCount": 0
+    },
+    {
+      "name": "backwards_monotonic_time_is_rejected",
+      "steps": [
+        {"id": "a", "positionMs": 8000, "atMs": 2000},
+        {"id": "b", "positionMs": 0, "atMs": 1000}
+      ],
+      "events": [], "streak": 0, "analysisCount": 0
+    },
+    {
+      "name": "completed_then_partial_and_position_clamp",
+      "steps": [
+        {"id": "a", "positionMs": 200000, "atMs": 1000},
+        {"id": "b", "positionMs": 60000, "atMs": 2000},
+        {"id": "c", "positionMs": 0, "atMs": 3000}
+      ],
+      "events": [
+        {"mediaId": "a", "playedMs": 180000, "durationMs": 180000, "category": "completed"},
+        {"mediaId": "b", "playedMs": 60000, "durationMs": 180000, "category": "partial"}
+      ],
+      "streak": 0, "analysisCount": 0
+    },
+    {
+      "name": "first_four_fast_skips_before_two_minutes",
+      "steps": [
+        {"id": "a", "positionMs": 8000, "atMs": 1000},
+        {"id": "b", "positionMs": 8000, "atMs": 2000},
+        {"id": "c", "positionMs": 8000, "atMs": 3000},
+        {"id": "d", "positionMs": 8000, "atMs": 4000},
+        {"id": "e", "positionMs": 0, "atMs": 5000}
+      ],
+      "events": [
+        {"mediaId": "a", "playedMs": 8000, "durationMs": 180000, "category": "fast"},
+        {"mediaId": "b", "playedMs": 8000, "durationMs": 180000, "category": "fast"},
+        {"mediaId": "c", "playedMs": 8000, "durationMs": 180000, "category": "fast"},
+        {"mediaId": "d", "playedMs": 8000, "durationMs": 180000, "category": "fast"}
+      ],
+      "streak": 0, "analysisCount": 1
+    },
+    {
+      "name": "cooldown_then_retrigger_after_120_seconds",
+      "steps": [
+        {"id": "a", "positionMs": 8000, "atMs": 1000},
+        {"id": "b", "positionMs": 8000, "atMs": 2000},
+        {"id": "c", "positionMs": 8000, "atMs": 3000},
+        {"id": "d", "positionMs": 8000, "atMs": 4000},
+        {"id": "e", "positionMs": 8000, "atMs": 5000},
+        {"id": "f", "positionMs": 8000, "atMs": 6000},
+        {"id": "g", "positionMs": 8000, "atMs": 7000},
+        {"id": "h", "positionMs": 8000, "atMs": 8000},
+        {"id": "i", "positionMs": 8000, "atMs": 9000},
+        {"id": "i", "positionMs": 8000, "atMs": 125000},
+        {"id": "j", "positionMs": 0, "atMs": 126000}
+      ],
+      "events": [
+        {"mediaId": "a", "playedMs": 8000, "durationMs": 180000, "category": "fast"},
+        {"mediaId": "b", "playedMs": 8000, "durationMs": 180000, "category": "fast"},
+        {"mediaId": "c", "playedMs": 8000, "durationMs": 180000, "category": "fast"},
+        {"mediaId": "d", "playedMs": 8000, "durationMs": 180000, "category": "fast"},
+        {"mediaId": "e", "playedMs": 8000, "durationMs": 180000, "category": "fast"},
+        {"mediaId": "f", "playedMs": 8000, "durationMs": 180000, "category": "fast"},
+        {"mediaId": "g", "playedMs": 8000, "durationMs": 180000, "category": "fast"},
+        {"mediaId": "h", "playedMs": 8000, "durationMs": 180000, "category": "fast"},
+        {"mediaId": "i", "playedMs": 8000, "durationMs": 180000, "category": "fast"}
+      ],
+      "streak": 0, "analysisCount": 2
+    }
+  ],
+  "profiles": [
+    {"name": "mixed_points", "events": [
+      {"mediaId": "a", "category": "completed"},
+      {"mediaId": "a", "category": "fast"},
+      {"mediaId": "b", "category": "partial"},
+      {"mediaId": "a", "category": "completed"}
+    ], "latest": 20, "total": 4, "completionPercent": 50, "scores": {"a": [1, 3], "b": [-1, 1]}},
+    {"name": "latest_window", "events": [
+      {"mediaId": "a", "category": "fast"},
+      {"mediaId": "a", "category": "completed"},
+      {"mediaId": "b", "category": "partial"}
+    ], "latest": 2, "total": 2, "completionPercent": 50, "scores": {"a": [2, 1], "b": [-1, 1]}}
+  ]
+}

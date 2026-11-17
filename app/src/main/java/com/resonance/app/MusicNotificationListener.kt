@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.media.MediaMetadata
 import android.media.session.MediaSessionManager
+import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Handler
 import android.os.Looper
@@ -30,7 +31,8 @@ data class MetadataDiagnostics(
 data class MusicSnapshot(
     val title: String, val skips: Int, val analysis: String,
     val fast: Int = 0, val partial: Int = 0, val completed: Int = 0,
-    val diagnostics: MetadataDiagnostics = MetadataDiagnostics()
+    val diagnostics: MetadataDiagnostics = MetadataDiagnostics(),
+    val historyRevision: Long = 0L
 )
 
 object MusicState {
@@ -47,23 +49,19 @@ object MusicState {
 
 class MusicNotificationListener : NotificationListenerService() {
     private val handler = Handler(Looper.getMainLooper())
-    private var lastMediaId: String? = null
-    private var lastDuration = 0L
-    private var lastPosition = -1L
-    private var lastObservedAt = 0L
-    private var lastDisplay = "等待 QQ 音乐播放"
+    private val tracker = BehaviorTracker()
+    private var activeSessionToken: MediaSession.Token? = null
+    private var diagnosticMediaId: String? = null
+    private var historyRevision = 0L
     private var diagnostics = MetadataDiagnostics()
     private var previousRawTitle: String? = null
     private var previousDisplayTitle: String? = null
     private var rawTitleChanged = false
     private var displayTitleChanged = false
-    private var consecutiveFastSkips = 0
-    private var lastAnalysis = 0L
-    private var analysisMessage = "等待歌曲切换"
-    private val cooldownMs = 120_000L
     private val poll = object : Runnable {
         override fun run() {
             try { checkSession() } catch (_: Exception) {
+                resetReading("媒体读取暂时失败，暂停行为判断")
                 publish("媒体读取暂时失败")
             }
             handler.postDelayed(this, 1200L)
@@ -71,25 +69,52 @@ class MusicNotificationListener : NotificationListenerService() {
     }
     override fun onListenerConnected() {
         super.onListenerConnected()
+        resetReading("媒体监听已连接，等待歌曲切换")
         handler.removeCallbacks(poll)
         handler.post(poll)
     }
     override fun onListenerDisconnected() {
         handler.removeCallbacks(poll)
+        resetReading("媒体监听已断开，未推断跳歌")
+        publish("媒体监听已断开")
         super.onListenerDisconnected()
+    }
+    override fun onDestroy() {
+        handler.removeCallbacks(poll)
+        resetReading("媒体监听已停止")
+        publish("媒体监听已停止")
+        super.onDestroy()
+    }
+    private fun resetReading(reason: String) {
+        tracker.suspendObservation(reason)
+        activeSessionToken = null
+        diagnosticMediaId = null
+        previousRawTitle = null
+        previousDisplayTitle = null
+        rawTitleChanged = false
+        displayTitleChanged = false
+        diagnostics = MetadataDiagnostics()
     }
     private fun checkSession() {
         val manager = getSystemService(MEDIA_SESSION_SERVICE) as MediaSessionManager
         val qq = manager.getActiveSessions(ComponentName(this, MusicNotificationListener::class.java))
             .firstOrNull { it.packageName == "com.tencent.qqmusic" }
         if (qq == null) {
-            diagnostics = MetadataDiagnostics()
-            // A temporarily missing session is not evidence of a skip.
+            resetReading("未检测到会话，暂停行为判断")
             publish("未检测到 QQ 音乐媒体会话")
             return
         }
-        val metadata = qq.metadata ?: return
-        val state = qq.playbackState ?: return
+        val metadata = qq.metadata
+        val state = qq.playbackState
+        if (metadata == null || state == null) {
+            resetReading("媒体信息暂时缺失，暂停行为判断")
+            publish("等待完整媒体信息")
+            return
+        }
+        if (activeSessionToken != qq.sessionToken) {
+            resetReading("媒体会话已更新，等待歌曲切换")
+            activeSessionToken = qq.sessionToken
+        }
         val now = SystemClock.elapsedRealtime()
         val id = metadata.getString(MediaMetadata.METADATA_KEY_MEDIA_ID)?.takeIf { it.isNotBlank() }
         val duration = metadata.getLong(MediaMetadata.METADATA_KEY_DURATION)
@@ -99,14 +124,14 @@ class MusicNotificationListener : NotificationListenerService() {
         val album = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM).orEmpty()
         val subtitle = metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE).orEmpty()
         val description = metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_DESCRIPTION).orEmpty()
-        val position = if (state.position >= 0L) {
-            if (state.state == PlaybackState.STATE_PLAYING)
-                state.position + ((now - state.lastPositionUpdateTime).coerceAtLeast(0L) * state.playbackSpeed).toLong()
-            else state.position
-        } else -1L
+        val playing = state.state == PlaybackState.STATE_PLAYING
+        val position = PlaybackPosition.estimate(
+            state.position, duration, playing, state.playbackSpeed,
+            state.lastPositionUpdateTime, now
+        )
 
         // QQ Music exposes changing lyric lines in TITLE. Never use TITLE for identity.
-        if (id != null && id == lastMediaId) {
+        if (id != null && id == diagnosticMediaId) {
             if (previousRawTitle != null && previousRawTitle != rawTitle) rawTitleChanged = true
             if (previousDisplayTitle != null && previousDisplayTitle != displayTitle) displayTitleChanged = true
         } else {
@@ -115,56 +140,19 @@ class MusicNotificationListener : NotificationListenerService() {
         }
         previousRawTitle = rawTitle
         previousDisplayTitle = displayTitle
+        diagnosticMediaId = id
         diagnostics = MetadataDiagnostics(
             mediaId = id.orEmpty(), rawTitle = rawTitle, displayTitle = displayTitle,
             artist = artist, album = album, subtitle = subtitle, description = description,
             durationMs = duration, positionMs = position,
-            playing = state.state == PlaybackState.STATE_PLAYING,
+            playing = playing,
             titleChangedWithinId = rawTitleChanged,
             displayTitleChangedWithinId = displayTitleChanged
         )
-        if (id != null && lastMediaId != null && id != lastMediaId) {
-            if (lastDuration > 0L && lastPosition >= 0L &&
-                lastObservedAt > 0L && now - lastObservedAt < 15_000L) {
-                val ratio = lastPosition.toDouble() / lastDuration
-                val category = when {
-                    ratio >= 0.70 || lastDuration - lastPosition <= 10_000L -> "completed"
-                    lastPosition < 15_000L -> "fast"
-                    else -> "partial"
-                }
-                recordEvent(lastMediaId!!, lastPosition, lastDuration, category)
-                consecutiveFastSkips = if (category == "fast") consecutiveFastSkips + 1 else 0
-                analysisMessage = when (category) {
-                    "fast" -> "快速跳过（15 秒内）"
-                    "partial" -> "中途切歌（弱负反馈）"
-                    else -> "基本听完（正反馈）"
-                }
-                if (consecutiveFastSkips >= 4) {
-                    if (now - lastAnalysis >= cooldownMs) {
-                        lastAnalysis = now
-                        analysisMessage = "连续 4 次快速跳过，触发重新分析（风格引擎待接入）"
-                        consecutiveFastSkips = 0
-                    } else analysisMessage = "连续跳过达到阈值，120 秒冷却中"
-                }
-            } else {
-                consecutiveFastSkips = 0
-                analysisMessage = "已换歌，上一首进度不足以可靠分类"
-            }
-            lastPosition = -1L
-            lastDuration = 0L
+        tracker.observe(PlaybackObservation(id, position, duration, playing, now))?.let { event ->
+            recordEvent(event.mediaId, event.playedMs, event.durationMs, event.category)
         }
-        if (id != null) {
-            lastMediaId = id
-            lastDisplay = "媒体 ID：$id"
-        } else {
-            lastDisplay = "QQ 音乐正在播放（缺少稳定媒体 ID）"
-        }
-        if (duration > 0L) lastDuration = duration
-        if (position >= 0L) {
-            lastPosition = position
-            lastObservedAt = now
-        }
-        publish(lastDisplay)
+        publish(if (id != null) "媒体 ID：$id" else "QQ 音乐正在播放（缺少稳定媒体 ID）")
     }
     private fun recordEvent(id: String, position: Long, duration: Long, category: String) {
         val prefs = getSharedPreferences("resonance_history", Context.MODE_PRIVATE)
@@ -176,6 +164,7 @@ class MusicNotificationListener : NotificationListenerService() {
         val retained = JSONArray()
         for (i in maxOf(0, entries.length() - 500) until entries.length()) retained.put(entries.get(i))
         prefs.edit().putString("events", retained.toString()).apply()
+        historyRevision++
     }
     private fun publish(title: String) {
         val prefs = getSharedPreferences("resonance_history", Context.MODE_PRIVATE)
@@ -190,6 +179,6 @@ class MusicNotificationListener : NotificationListenerService() {
                 "completed" -> completed++
             }
         }
-        MusicState.publish(MusicSnapshot(title, consecutiveFastSkips, analysisMessage, fast, partial, completed, diagnostics))
+        MusicState.publish(MusicSnapshot(title, tracker.consecutiveFastSkips, tracker.notice, fast, partial, completed, diagnostics, historyRevision))
     }
 }
