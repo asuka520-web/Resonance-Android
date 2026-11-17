@@ -53,10 +53,12 @@ class QqAccountActivity : ComponentActivity() {
         QqLibrary.prioritize(song.mid)
     }
     private fun playRecommendation(selectedMid: String?) {
+        playBatch(QqLibrary.state.recommendation?.picks.orEmpty().map {it.track.mediaId.removePrefix("qq:")},selectedMid)
+    }
+    private fun playBatch(mids: List<String>, selectedMid: String?) {
         val active = controller ?: run { QqLibrary.notice("播放器正在准备，请稍后再试。"); return }
         if (QqSessionManager.refresh() == null) { QqLibrary.notice("请先连接 QQ 音乐账号。"); return }
-        val songs = QqLibrary.state.recommendation?.picks.orEmpty()
-            .mapNotNull { QqLibrary.track(it.track.mediaId.removePrefix("qq:")) }
+        val songs = mids.distinct().take(100).mapNotNull(QqLibrary::track)
         if (songs.isEmpty()) { QqLibrary.notice("这批推荐尚未准备好。"); return }
         val index = selectedMid?.let { mid -> songs.indexOfFirst { it.mid == mid }.takeIf { it >= 0 } } ?: 0
         active.setMediaItems(songs.map(CatalogueMediaItems::recommendationItem), index, 0)
@@ -111,7 +113,7 @@ class QqAccountActivity : ComponentActivity() {
                     CookieManager.getInstance().removeAllCookies { CookieManager.getInstance().flush() }
                 }, onLegacy = { startActivity(Intent(this@QqAccountActivity, MainActivity::class.java)) },
                 onPlaylists = { QqLibrary.loadPlaylists() }, onPlaylist = { QqLibrary.openPlaylist(it) },
-                onPlayRecommendation = ::playRecommendation)
+                onPlayRecommendation = ::playRecommendation, onPlayDiscovery = ::playBatch)
             if (showLogin) ResonanceTheme {
                 ModalBottomSheet(onDismissRequest = { closeLogin() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
                     modifier = Modifier.fillMaxHeight(.96f)) {

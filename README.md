@@ -3,6 +3,19 @@
 A local-first Android music assistant with QQ account integration, background
 playback, favourite-first genre enrichment and recommendations. Kotlin + Compose.
 
+## v0.11.0
+
+- Browse the outside-favourite pool in a dedicated Discovery tab, with source
+  explanations, search, genre/local-history filters and exact visible-order queues.
+- Avoid recent negative feedback and known recording duplicates; use real recent
+  positive genre evidence and spread artists rather than displaying raw fetch order.
+- Native-player direction changes default to no extra wait after each four valid
+  skips; optional 15/30/60/120-second waits take effect on the next transition.
+- Visible retry and alternate-source buttons can schedule missing songs while
+  initial analysis is running. QQ errors or empty tags may use strict supplementary
+  matching. Existing tags survive failed refreshes; opt-out and cancellation honored.
+- [Phone acceptance](docs/DISCOVERY_BROWSER_TEST.md). Fixed signing and old data preserved.
+
 ## v0.10.0
 
 - Separate waiting, failed/retryable and unavailable genre states, with a batch

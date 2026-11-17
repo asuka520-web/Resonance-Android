@@ -10,7 +10,9 @@ data class LibraryState(
     val analyzing: Boolean = false, val message: String = "连接 QQ 音乐，让收藏变成懂你的推荐。",
     val recommendation: StylePlan? = null, val revision: Long = 0,
     val openedPlaylist: QqCataloguePlaylist? = null, val playlistTracks: List<QqCatalogueTrack> = emptyList(),
-    val discovering: Boolean = false, val activeGenreMid: String = "", val discoveryMessage: String = ""
+    val discovering: Boolean = false, val activeGenreMid: String = "", val discoveryMessage: String = "",
+    val discoverySources: Map<String,List<String>> = emptyMap(), val listening: List<ListeningSignal> = emptyList(),
+    val retryScheduled: Boolean = false
 ) {
     val allTracks get() = (favorites + discoveries).distinctBy { it.mid }
     val taggedCount get() = favorites.count { genres[it.mid]?.labels?.isNotEmpty() == true }
@@ -25,12 +27,14 @@ object QqLibrary {
     private var syncJob: Job? = null
     private var genreJob: Job? = null
     private var discoveryJob: Job? = null
+    private val genreLookup=CatalogueGenreLookup()
     private var discoveryPool = DiscoveryPool()
     private var activeDiscoveryMid = ""
     private val pendingSeeds = linkedSetOf<String>()
     private val discoveryRetryAt = mutableMapOf<String, Long>()
     private val automaticSeeds = mutableSetOf<String>()
     private val forcedGenres = mutableSetOf<String>()
+    private val supplementOnly = mutableSetOf<String>()
     private val priority = linkedSetOf<String>()
     private var recommendationAnchor: String? = null
     private var generation = 0L
@@ -49,12 +53,13 @@ object QqLibrary {
         if (key != value.accountScope) {
             generation++
             syncJob?.cancel(); genreJob?.cancel(); discoveryJob?.cancel()
-            pendingSeeds.clear(); discoveryRetryAt.clear(); automaticSeeds.clear(); forcedGenres.clear(); activeDiscoveryMid = ""
+            pendingSeeds.clear(); discoveryRetryAt.clear(); automaticSeeds.clear(); forcedGenres.clear(); supplementOnly.clear(); activeDiscoveryMid = ""
             priority.clear(); recommendationAnchor = null
             val saved = if (key.isBlank()) emptyList() else CatalogueStore.songs(context, key)
             discoveryPool = if (key.isBlank()) DiscoveryPool() else CatalogueStore.discovery(context, key)
             val genres = (saved + discoveryPool.tracks).mapNotNull { song -> CatalogueStore.genre(context, song.mid)?.let { song.mid to it } }.toMap()
             update(LibraryState(accountScope = key, favorites = saved, discoveries = discoveryPool.tracks, genres = genres,
+                discoverySources = discoveryPool.sources(), listening = if(key.isBlank())emptyList() else StyleRecommendations.signals(CatalogueStore.events(context,key)),
                 message = if (key.isBlank()) "连接 QQ 音乐，让收藏变成懂你的推荐。" else "QQ 音乐已连接，正在准备你的收藏。"))
         }
         if (account != null) {
@@ -136,18 +141,22 @@ object QqLibrary {
 
     fun closePlaylist() = update(value.copy(openedPlaylist = null, playlistTracks = emptyList()))
 
-    fun retryMissing() {
+    fun retryMissing(useSupplementOnly: Boolean = false) {
         val context = app ?: return
         if (value.accountScope.isBlank()) return
+        if (useSupplementOnly && !context.getSharedPreferences("resonance_settings",Context.MODE_PRIVATE).getBoolean("catalogue_external_tags",true)) {
+            notice("请先在“我的”开启在线补全。"); return
+        }
         val missing = value.favorites.filter { value.genres[it.mid]?.labels.isNullOrEmpty() }
         val changed = missing.associate { song ->
+            if (useSupplementOnly) supplementOnly.add(song.mid) else supplementOnly.remove(song.mid)
             forcedGenres.add(song.mid); priority.add(song.mid)
             val old = value.genres[song.mid] ?: CatalogueGenre(song.mid, emptySet(), "pending", "等待查询", 0, 0)
             val retry = GenreLookupPolicy.retry(old)
             CatalogueStore.saveGenre(context, retry)
             song.mid to retry
         }
-        update(value.copy(genres = value.genres + changed, message = "已安排重试 ${missing.size} 首，已取得的曲风保留。"))
+        update(value.copy(genres = value.genres + changed, retryScheduled = missing.isNotEmpty(), message = "已安排重试 ${missing.size} 首，已取得的曲风保留。"))
         analyze()
     }
 
@@ -162,6 +171,9 @@ object QqLibrary {
                 val processed = mutableSetOf<String>()
                 while (token == generation) {
                     val now = System.currentTimeMillis()
+                    // An in-flight initial query can finish after the user schedules a retry.
+                    val fulfilled = forcedGenres.filter { value.genres[it]?.labels?.isNotEmpty() == true }.toSet()
+                    forcedGenres.removeAll(fulfilled); supplementOnly.removeAll(fulfilled)
                     val candidates = (priority.mapNotNull(::track) + value.allTracks).distinctBy { it.mid }
                     val song = candidates.firstOrNull {
                         it.mid in forcedGenres || (it.mid !in processed && (value.genres[it.mid]?.retryAt ?: 0L) <= now)
@@ -170,25 +182,16 @@ object QqLibrary {
                     processed.add(song.mid)
                     update(value.copy(activeGenreMid = song.mid))
                     try {
-                        val labels = QqAccountClient.songGenres(song.mid).map(CatalogueCodec::normalizeGenre).toSet()
-                        var result = CatalogueGenre(song.mid, labels, "qq-song-detail", "QQ 单曲流派", now,
-                            now + (if (labels.isEmpty()) 7 else 30) * 24 * 60 * 60 * 1000L)
-                        if (labels.isEmpty() && context.getSharedPreferences("resonance_settings", Context.MODE_PRIVATE)
-                                .getBoolean("catalogue_external_tags", true) && song.durationMs > 0 && song.artist.isNotBlank()) {
-                            val info = SongInfo("qq:${song.mid}", song.name, song.artist, song.album, "qq-catalogue")
-                            val match = AutomaticGenreMatcher.match(info, song.durationMs, MusicBrainzClient.searchAutomatic(info, song.durationMs))
-                            match.recording?.let { recording ->
-                                val extra = MusicBrainzClient.genres(recording.id).map(CatalogueCodec::normalizeGenre).toSet()
-                                if (extra.isNotEmpty()) result = CatalogueGenre(song.mid, extra, "musicbrainz-recording", match.reason,
-                                    now, now + 30 * 24 * 60 * 60 * 1000L, recording.id)
-                            }
-                            if (result.labels.isEmpty()) result = result.copy(evidence = match.reason)
-                        }
+                        val onlySupplement = supplementOnly.remove(song.mid)
+                        val fresh = genreLookup.fetch(song,now,onlySupplement,context.getSharedPreferences("resonance_settings",Context.MODE_PRIVATE)
+                            .getBoolean("catalogue_external_tags",true))
+                        val result = GenreLookupPolicy.preserveKnown(value.genres[song.mid],fresh)
                         if (token != generation) break
                         CatalogueStore.saveGenre(context, result)
                         update(value.copy(genres = value.genres + (song.mid to result)))
                         refreshRecommendation()
-                        errors = 0
+                        errors = if(fresh.status==GenreLookupStatus.RETRY)errors+1 else 0
+                        if(errors>=3){notice("资料来源暂不可用，分析已暂停；可稍后重试。");break}
                     } catch (e: CancellationException) { throw e }
                     catch (_: Exception) {
                         errors++
@@ -203,7 +206,7 @@ object QqLibrary {
                     }
                     delay(1100)
                 }
-            } finally { if (token == generation) { update(value.copy(analyzing = false, activeGenreMid = "")); warmDiscovery() } }
+            } finally { if (token == generation) { update(value.copy(analyzing = false, activeGenreMid = "", retryScheduled=false)); warmDiscovery() } }
         }
     }
 
@@ -212,7 +215,12 @@ object QqLibrary {
         if (!includeUnknown && genre?.labels.isNullOrEmpty()) return@mapNotNull null
         StyleTrack("qq:${song.mid}", song.name, song.artist, genre?.recordingId?.ifBlank { "qq:${song.mid}" } ?: "qq:${song.mid}", genre?.labels.orEmpty())
     }
-    fun signals(): List<ListeningSignal> = app?.let { StyleRecommendations.signals(CatalogueStore.events(it, value.accountScope)) }.orEmpty()
+    fun signals() = value.listening
+    fun refreshListening() {
+        val context = app ?: return
+        update(value.copy(listening=StyleRecommendations.signals(CatalogueStore.events(context,value.accountScope))))
+        refreshRecommendation()
+    }
     fun similar(mid: String): StylePlan {
         recommendationAnchor = mid
         val plan = similarPlan(mid)
@@ -280,6 +288,7 @@ object QqLibrary {
                         val cached = songs.mapNotNull { song -> CatalogueStore.genre(context, song.mid)?.let { song.mid to it } }.toMap()
                         if (recommendationAnchor == mid) songs.forEach { priority.add(it.mid) }
                         update(value.copy(discoveries = (value.discoveries + songs).distinctBy { it.mid }, genres = value.genres + cached,
+                            discoverySources=discoveryPool.sources(),
                             discoveryMessage = "收藏外候选已更新，曲风资料会自动补齐。"))
                         refreshRecommendation(); analyze()
                     } catch (e: CancellationException) { throw e }

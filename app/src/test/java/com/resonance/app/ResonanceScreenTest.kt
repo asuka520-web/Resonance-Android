@@ -76,7 +76,7 @@ class ResonanceScreenTest {
             {},{},{},{},{},{},{},{},{},{},{},onRetryMissing={retried=true})}
         compose.onNodeWithText("收藏",useUnmergedTree=true).performClick()
         compose.onNodeWithText("已有曲风 1 · 等待查询 1\n待重试 1 · 暂无资料 1").assertIsDisplayed()
-        compose.onNodeWithText("重试未取得曲风的歌曲").performClick()
+        compose.onNodeWithText("重试未取得曲风").performClick()
         assertTrue(retried)
         compose.onNodeWithText("流行 · 灵魂乐").assertExists()
         capture("library-status-test-data")
@@ -93,5 +93,35 @@ class ResonanceScreenTest {
         compose.onNodeWithText("收藏外测试歌曲").performScrollTo().performClick()
         assertEquals("newSong",selected)
         assertFalse(ordinaryPlayed)
+    }
+    @Test fun discoveryTabShowsSourceAndPlaysTheVisibleCandidateQueue() {
+        val seed=QqCatalogueTrack("seed","seed","收藏锚点","测试歌手","专辑",200000)
+        val song=QqCatalogueTrack("outside","outside","发现里的歌曲","另一歌手","专辑",200000)
+        var played=emptyList<String>();var selected:String?=null
+        compose.setContent {ResonanceScreen(LibraryState(accountScope="test",favorites=listOf(seed),discoveries=listOf(song),
+            discoverySources=mapOf("outside" to listOf("seed"))),PlayerStatus(),{},{},{},{},{},{},{},{},{},{},{},
+            onPlayDiscovery={mids,mid->played=mids;selected=mid})}
+        compose.onNodeWithText("发现",useUnmergedTree=true).performClick()
+        compose.onNodeWithText("发现里的歌曲").performScrollTo().performClick()
+        assertEquals(listOf("outside"),played);assertEquals("outside",selected)
+        compose.onNodeWithText("来自「收藏锚点」的相关推荐").assertExists()
+        capture("discovery-test-data")
+    }
+    @Test fun cooldownIsSelectableAndSavedWithoutRestart() {
+        show(LibraryState())
+        compose.onNodeWithText("我的",useUnmergedTree=true).performClick()
+        compose.onNodeWithText("不额外等待").performScrollTo().assertIsSelected()
+        compose.onNodeWithText("15秒").performClick()
+        compose.runOnIdle {assertEquals(15,compose.activity.getSharedPreferences("resonance_settings",0).getInt("qq_direction_cooldown_seconds",-1))}
+    }
+    @Test fun retryAndSupplementButtonsRemainAvailableDuringInitialAnalysis() {
+        val song=QqCatalogueTrack("pending","pending","等待中的歌","歌手","专辑",200000)
+        var secondary=false
+        compose.setContent {ResonanceScreen(LibraryState(accountScope="test",favorites=listOf(song),analyzing=true),PlayerStatus(),
+            {},{},{},{},{},{},{},{},{},{},{},onSupplementMissing={secondary=true})}
+        compose.onNodeWithText("收藏",useUnmergedTree=true).performClick()
+        compose.onNodeWithText("重试未取得曲风").assertIsEnabled()
+        compose.onNodeWithText("换来源补齐").performClick()
+        assertTrue(secondary)
     }
 }

@@ -8,6 +8,8 @@ data class DiscoveryBatch(val seedMid: String, val fetchedAt: Long, val tracks: 
 /** Exact QQ relationships, stored per account. Neither inferred genres nor playback URLs. */
 data class DiscoveryPool(val batches: List<DiscoveryBatch> = emptyList()) {
     val tracks get() = batches.flatMap { it.tracks }.distinctBy { it.mid }
+    fun sources() = batches.flatMap { batch -> batch.tracks.map { it.mid to batch.seedMid } }
+        .groupBy({it.first},{it.second}).mapValues { it.value.distinct() }
     fun related(mid: String) = batches.firstOrNull { it.seedMid == mid }?.tracks?.map { it.mid }?.toSet().orEmpty()
     fun fresh(mid: String, now: Long) = batches.firstOrNull { it.seedMid == mid }
         ?.let { now - it.fetchedAt in 0 until 24 * 60 * 60 * 1000L } == true

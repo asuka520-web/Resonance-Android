@@ -19,6 +19,14 @@ relationships, automatic diverse seeds and actual recommendation queues. See
 `docs/DISCOVERY_RELEASE_TEST.md`. Direct relationship recommendations may include
 unknown genres only with explicit provenance; direction changes still require
 known genres. Never turn these relationships into inferred genre labels.
+The user then requested a browsable discovery section, complained that the
+120-second direction cooldown is too long, and requested visible retry and
+alternate-source genre buttons. v0.11.0 supersedes that cooldown for the native
+player: default zero extra wait after each four valid skips, with optional
+15/30/60/120 seconds. Keep the old external observer's 120-second fixture contract.
+QQ errors as well as empty genre responses may fall back to strict MusicBrainz
+matching; alternate-source retries must preserve positive cached tags and honor
+the online-supplement setting. See `docs/DISCOVERY_BROWSER_TEST.md`.
 
 Core requirements and acceptance gates: `docs/PRODUCT_REQUIREMENTS.md`.
 The main outcomes are skip-triggered style switching and current-intent similar
@@ -83,7 +91,8 @@ notification-service lifecycle. See `docs/TESTING_STRATEGY.md`.
 - History is capped at 500 events. Keep the cap unless intentionally redesigned with migration/export.
 
 ## Product behavior constraints
-- Four consecutive fast skips triggers analysis; cooldown is 120 seconds.
+- Four consecutive fast skips triggers analysis. Native-player cooldown defaults
+  to zero extra wait and is configurable; the legacy observer retains 120 seconds.
 - Current behavior scoring is heuristic: completed +2, partial -1, fast skip -3. Label it as a heuristic, not AI or genre understanding.
 - Current short-term view uses latest 20 events; long-term view uses latest 500 events.
 - Legacy `resonance_settings/auto` is retained but must not enable playback.

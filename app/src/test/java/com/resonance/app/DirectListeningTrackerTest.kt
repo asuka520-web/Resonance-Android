@@ -19,13 +19,35 @@ class DirectListeningTrackerTest {
         assertEquals(0,tracker.fastSkips)
     }
     @Test fun skipsInsideCooldownDoNotRetrigger() {
-        val tracker=DirectListeningTracker()
+        val tracker=DirectListeningTracker(120000)
         tracker.transition("0",200000,TrackTransition.OTHER,0)
         for(i in 1..8) {
             tracker.tick((i-1)*5000L,true)
             val event=tracker.transition("$i",200000,TrackTransition.USER,i*5000L)!!
             assertEquals(i==4,event.changeDirection)
         }
+    }
+    @Test fun defaultCanChangeDirectionAgainAfterAnotherFourValidSkips() {
+        val tracker=DirectListeningTracker()
+        tracker.transition("0",200000,TrackTransition.OTHER,0)
+        for(i in 1..12) {
+            tracker.tick((i-1)*2000L,true)
+            val event=tracker.transition("$i",200000,TrackTransition.USER,i*2000L)!!
+            assertEquals(i%4==0,event.changeDirection)
+        }
+    }
+    @Test fun changingCooldownTakesEffectImmediatelyAndInvalidSettingsUseDefault() {
+        val tracker=DirectListeningTracker(DirectionCooldown.milliseconds(120))
+        tracker.transition("0",200000,TrackTransition.OTHER,0)
+        for(i in 1..7) {
+            tracker.tick((i-1)*2000L,true)
+            tracker.transition("$i",200000,TrackTransition.USER,i*2000L)
+        }
+        tracker.directionCooldownMs=DirectionCooldown.milliseconds(0)
+        tracker.tick(14000,true)
+        assertTrue(tracker.transition("8",200000,TrackTransition.USER,16000)!!.changeDirection)
+        assertEquals(0L,DirectionCooldown.milliseconds(-1))
+        assertEquals(30000L,DirectionCooldown.milliseconds(30))
     }
     @Test fun seekingAndPausedTimeDoNotInflateListening() {
         val tracker=DirectListeningTracker()

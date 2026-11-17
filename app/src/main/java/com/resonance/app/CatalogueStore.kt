@@ -14,6 +14,8 @@ data class CatalogueGenre(val mid: String, val labels: Set<String>, val source: 
                           else if (source == "pending") GenreLookupStatus.RETRY else GenreLookupStatus.UNAVAILABLE)
 
 object GenreLookupPolicy {
+    fun preserveKnown(previous:CatalogueGenre?,fresh:CatalogueGenre):CatalogueGenre =
+        if(previous?.mid==fresh.mid && previous.labels.isNotEmpty() && fresh.labels.isEmpty())previous.copy(retryAt=fresh.retryAt) else fresh
     fun status(genre: CatalogueGenre?): GenreLookupStatus = when {
         genre == null -> GenreLookupStatus.WAITING
         genre.labels.isNotEmpty() -> GenreLookupStatus.READY

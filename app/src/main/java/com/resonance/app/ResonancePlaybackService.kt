@@ -124,6 +124,8 @@ class ResonancePlaybackService : MediaSessionService() {
                 if (mid != null) QqLibrary.prioritize(mid)
                 val kind = if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) TrackTransition.NATURAL else nextTransition
                 nextTransition = TrackTransition.OTHER
+                tracker.directionCooldownMs = DirectionCooldown.milliseconds(getSharedPreferences("resonance_settings", MODE_PRIVATE)
+                    .getInt("qq_direction_cooldown_seconds", 0))
                 val event = tracker.transition(mid, QqLibrary.track(mid.orEmpty())?.durationMs ?: 0, kind, SystemClock.elapsedRealtime())
                 excerpt = false; confirmedMid = ""
                 message = if (mid == null) "播放队列已清空。" else "正在连接音源…"
@@ -135,6 +137,7 @@ class ResonancePlaybackService : MediaSessionService() {
                 }
                 if (event != null && historyScope.isNotBlank()) {
                     CatalogueStore.record(this@ResonancePlaybackService, historyScope, event.mid, event.heardMs, event.durationMs, event.category, event.reason)
+                    QqLibrary.refreshListening()
                     if (event.changeDirection && getSharedPreferences("resonance_settings", MODE_PRIVATE).getBoolean("qq_auto_direction", true)) {
                         handler.post {
                             val plan = QqLibrary.direction(mid.orEmpty())
@@ -155,6 +158,7 @@ class ResonancePlaybackService : MediaSessionService() {
                     tracker.transition(null, 0, TrackTransition.NATURAL, SystemClock.elapsedRealtime())?.let { event ->
                         if (historyScope.isNotBlank()) CatalogueStore.record(this@ResonancePlaybackService, historyScope,
                             event.mid, event.heardMs, event.durationMs, event.category, event.reason)
+                        QqLibrary.refreshListening()
                     }
                     message = if (excerpt) "试听片段已结束。" else "本首播放结束。"
                 }

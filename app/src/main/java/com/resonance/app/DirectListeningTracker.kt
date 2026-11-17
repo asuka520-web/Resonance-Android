@@ -5,7 +5,7 @@ data class DirectListeningEvent(val mid: String, val heardMs: Long, val duration
                                 val reason: String, val changeDirection: Boolean)
 
 /** Direct player events replace transition guesses. Seeking cannot inflate actual listening time. */
-class DirectListeningTracker {
+class DirectListeningTracker(var directionCooldownMs: Long = 0) {
     private var mid: String? = null
     private var durationMs = 0L
     private var heardMs = 0L
@@ -40,7 +40,7 @@ class DirectListeningTracker {
         if (reason == TrackTransition.NATURAL && category != "completed") { fastSkips = 0; return null }
         fastSkips = if (reason == TrackTransition.USER && category == "fast") fastSkips + 1 else 0
         var trigger = false
-        if (fastSkips >= 4 && (lastAnalysis == null || now - lastAnalysis!! >= 120_000L)) {
+        if (fastSkips >= 4 && (lastAnalysis == null || now - lastAnalysis!! >= directionCooldownMs.coerceAtLeast(0))) {
             lastAnalysis = now; fastSkips = 0; trigger = true
         }
         return DirectListeningEvent(oldMid, heard, oldDuration,
@@ -48,4 +48,10 @@ class DirectListeningTracker {
     }
     fun suspend(now: Long) { mid = null; heardMs = 0; wasPlaying = false; lastTick = now; fastSkips = 0 }
     val currentMid get() = mid
+}
+
+object DirectionCooldown {
+    val options = listOf(0, 15, 30, 60, 120)
+    fun milliseconds(seconds: Int) = (seconds.takeIf { it in options } ?: 0) * 1000L
+    fun label(seconds: Int) = if (seconds == 0) "不额外等待" else "${seconds}秒"
 }
