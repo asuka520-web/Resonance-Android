@@ -74,6 +74,18 @@ batch, clearly labelled BATCH, never verified genre change. All tag scores use t
 same feedback function as ranking; history stores at most 20 direction attempts per
 account and never equates a request with audible playback. See docs/FEEDBACK_QUEUE_TEST.md.
 
+## v0.14.0 user-requested work
+
+Expose tag scores prominently and allow resetting all current-account scores;
+retain history, favourite/genre data and familiarity. A separate capped scoring
+stream defaults to legacy history until reset, then only new feedback contributes.
+Reset also clears the in-memory fast-skip streak, temporary automatic avoidance,
+pending confirmation and stale queued analysis without restarting current audio.
+Profile shows device-wide native-player listening minutes, persisted separately
+from feedback and the 500-event cap. Use monotonic audible intervals; never seek
+positions or app-open duration. One-time legacy recovery is limited to retained
+history; do not claim restoration of previously evicted events. See docs/SCORE_TIME_TEST.md.
+
 ## Before editing
 - Read `README.md` and `docs/LOCAL_DEVELOPMENT.md`.
 - Inspect the current implementation before changing it. Do not assume old chat summaries describe the current source.

@@ -72,7 +72,7 @@ class ResonanceScreenTest {
         val labels=listOf("pop","r&b","jazz")
         val genres=songs.mapIndexed {i,song -> song.mid to CatalogueGenre(song.mid,setOf(labels[i]),"qq-song-detail","test fixture",0,Long.MAX_VALUE)}.toMap()
         show(LibraryState(accountScope="test-only",favorites=songs,genres=genres),PlayerStatus(mid="test0",playing=true,positionMs=50000,durationMs=200000))
-        compose.onNodeWithText("100%").assertIsDisplayed()
+        compose.onNodeWithText("100%").performScrollTo().assertIsDisplayed()
         compose.onAllNodesWithText("晚风经过").onFirst().assertIsDisplayed()
         capture("home-connected-test-data")
     }
@@ -108,7 +108,8 @@ class ResonanceScreenTest {
         var ordinaryPlayed=false
         compose.setContent {ResonanceScreen(LibraryState(accountScope="test",discoveries=listOf(song),recommendation=plan),PlayerStatus(),
             {},{},{ordinaryPlayed=true},{},{},{},{},{},{},{},{},onPlayRecommendation={selected=it})}
-        compose.onNodeWithText("播放这批").performScrollTo().performClick()
+        compose.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("播放这批"))
+        compose.onNodeWithText("播放这批").performClick()
         assertNull(selected)
         compose.onNodeWithText("收藏外测试歌曲").performScrollTo().performClick()
         assertEquals("newSong",selected)
@@ -246,5 +247,33 @@ class ResonanceScreenTest {
         compose.onNodeWithText("仅收藏").performScrollTo().performClick()
         assertEquals("FAVORITES",selected)
         capture("player-range-test-data")
+    }
+    @Test fun scoresAreProminentAndResetRequiresAnExplicitConfirmation() {
+        val song=QqCatalogueTrack("score","score","分数测试歌","歌手","专辑",200000)
+        val state=mutableStateOf(LibraryState(accountScope="test",favorites=listOf(song),genres=mapOf("score" to CatalogueGenre("score",setOf("pop"),"qq-song-detail","",0,999)),
+            listening=listOf(ListeningSignal("qq:score","fast"))))
+        var cleared=0
+        compose.setContent {ResonanceScreen(state.value,PlayerStatus(),{},{},{},{},{},{},{},{},{},{},{},onClearScores={cleared++;state.value=state.value.copy(scoreListening=emptyList())})}
+        compose.onNodeWithText("当前标签分数").assertIsDisplayed()
+        compose.onNodeWithText("-3.0").assertIsDisplayed()
+        capture("prominent-scores-test-data")
+        compose.onNodeWithText("清除当前所有分数").performClick()
+        assertEquals(0,cleared)
+        compose.onNodeWithText("取消",useUnmergedTree=true).performClick()
+        assertEquals(0,cleared)
+        compose.onNodeWithText("清除当前所有分数").performClick()
+        compose.onNodeWithText("确认清零").performClick()
+        assertEquals(1,cleared)
+        compose.onNodeWithText("+0.0").assertIsDisplayed()
+    }
+    @Test fun profileShowsListeningMinutesAndLiveStatusTakesPrecedenceOverStoredBaseline() {
+        val player=mutableStateOf(PlayerStatus(listeningTimeMs=125000))
+        compose.setContent {ResonanceScreen(LibraryState(listeningTimeMs=60000),player.value,{},{},{},{},{},{},{},{},{},{},{})}
+        compose.onNodeWithText("我的",useUnmergedTree=true).performClick()
+        compose.onNodeWithText("陪伴时长").assertIsDisplayed()
+        compose.onNodeWithText("2 分钟").assertIsDisplayed()
+        compose.runOnIdle {player.value=player.value.copy(listeningTimeMs=180000)}
+        compose.onNodeWithText("3 分钟").assertIsDisplayed()
+        capture("companion-time-test-data")
     }
 }

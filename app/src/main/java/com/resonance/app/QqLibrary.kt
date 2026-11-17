@@ -15,8 +15,10 @@ data class LibraryState(
     val retryScheduled: Boolean = false,val intent:ListeningIntent=ListeningIntent(),
     val favoriteStates:Map<String,Boolean> = emptyMap(),val favoriteBusy:Set<String> = emptySet(),val favoriteUncertain:Set<String> = emptySet(),
     val feedback:DirectionNotice?=null,val directionHistory:List<DirectionSwitch> = emptyList(),
-    val enriching:Boolean=false,val enrichedProgress:Int=0,val enrichmentTotal:Int=0
+    val enriching:Boolean=false,val enrichedProgress:Int=0,val enrichmentTotal:Int=0,
+    val scoreListening:List<ListeningSignal>?=null,val scoreEpoch:Long=0,val listeningTimeMs:Long=0
 ) {
+    val scoreSignals get()=scoreListening?:listening
     val allTracks get() = (favorites + discoveries).distinctBy { it.mid }
     val taggedCount get() = favorites.count { genres[it.mid]?.labels?.isNotEmpty() == true }
     fun statusCount(status: GenreLookupStatus) = favorites.count { GenreLookupPolicy.status(genres[it.mid]) == status }
@@ -59,7 +61,7 @@ object QqLibrary {
         val context=app?:return 0
         val id=System.nanoTime()
         val row=DirectionSwitch(id,System.currentTimeMillis(),from,target,track(target)?.name.orEmpty(),plan.directionKind,plan.explanation,
-            scores=GenrePreferenceScores.calculate(styleTracks(),signals()).associate {it.label to it.combined})
+            scores=GenrePreferenceScores.calculate(styleTracks(),value.scoreSignals).associate {it.label to it.combined})
         val rows=(value.directionHistory+row).takeLast(20)
         CatalogueStore.saveDirectionHistory(context,value.accountScope,rows);update(value.copy(directionHistory=rows))
         return id
@@ -118,6 +120,7 @@ object QqLibrary {
     fun activate(context: Context, account: QqAccountSession?) {
         app = context.applicationContext
         session = account
+        if(value.listeningTimeMs==0L)update(value.copy(listeningTimeMs=ListeningTimeStore.totalMs(context)))
         val key = account?.let { CatalogueStore.scope(it.userId) }.orEmpty()
         if (key != value.accountScope) {
             generation++
@@ -133,6 +136,8 @@ object QqLibrary {
                 preferences.getStringSet("excluded",emptySet()).orEmpty().toSet(),preferences.getBoolean("all",false)).normalized()
             update(LibraryState(accountScope = key, favorites = saved, discoveries = discoveryPool.tracks, genres = genres,
                 intent=intent,
+                scoreListening=if(key.isBlank())emptyList() else StyleRecommendations.signals(CatalogueStore.scoreEvents(context,key)),
+                scoreEpoch=if(key.isBlank())0 else CatalogueStore.scoreEpoch(context,key),listeningTimeMs=ListeningTimeStore.totalMs(context),
                 directionHistory=if(key.isBlank())emptyList() else CatalogueStore.directionHistory(context,key).map {
                     if(it.state=="PREPARING")it.copy(state="UNCONFIRMED",detail="上次播放服务已中断，未确认目标播放。") else it},
                 discoverySources = discoveryPool.sources(), listening = if(key.isBlank())emptyList() else StyleRecommendations.signals(CatalogueStore.events(context,key)),
@@ -327,9 +332,18 @@ object QqLibrary {
         StyleTrack("qq:${song.mid}", song.name, song.artist, genre?.recordingId?.ifBlank { "qq:${song.mid}" } ?: "qq:${song.mid}", genre?.labels.orEmpty())
     }
     fun signals() = value.listening
+    fun clearScores() {
+        val context=app?:return
+        if(value.accountScope.isBlank())return
+        val epoch=CatalogueStore.clearScores(context,value.accountScope)
+        recommendationAnchor=null;surpriseId=null
+        update(value.copy(scoreListening=emptyList(),scoreEpoch=epoch,recommendation=null))
+        feedback("标签分数已清零，将从新的听歌反馈重新积累。")
+    }
     fun refreshListening() {
         val context = app ?: return
-        update(value.copy(listening=StyleRecommendations.signals(CatalogueStore.events(context,value.accountScope))))
+        update(value.copy(listening=StyleRecommendations.signals(CatalogueStore.events(context,value.accountScope)),
+            scoreListening=StyleRecommendations.signals(CatalogueStore.scoreEvents(context,value.accountScope))))
         refreshRecommendation()
     }
     fun similar(mid: String): StylePlan {
@@ -343,8 +357,8 @@ object QqLibrary {
     fun direction(mid: String): StylePlan {
         recommendationAnchor = null
         val favorites=value.favorites.map {"qq:${it.mid}"}.toSet()
-        val genrePlan = StyleRecommendations.changeDirection("qq:$mid", styleTracks(), signals(), favorites,value.intent)
-        val plan=DirectionFallback.plan(genrePlan,styleTracks(true).filter {value.intent.accepts(it.genres)},signals(),favorites,"qq:$mid")
+        val genrePlan = StyleRecommendations.changeDirection("qq:$mid", styleTracks(), signals(), favorites,value.intent,value.scoreSignals)
+        val plan=DirectionFallback.plan(genrePlan,styleTracks(true).filter {value.intent.accepts(it.genres)},signals(),favorites,"qq:$mid",value.scoreSignals)
         update(value.copy(recommendation = plan))
         return plan
     }
@@ -353,7 +367,7 @@ object QqLibrary {
     private fun similarPlan(mid: String):StylePlan {
         val tracks=styleTracks(true)
         val favorites=value.favorites.map {"qq:${it.mid}"}.toSet()
-        val base=StyleRecommendations.similar("qq:$mid",tracks,signals(),favorites,discoveryPool.related(mid).map {"qq:$it"}.toSet(),value.intent)
+        val base=StyleRecommendations.similar("qq:$mid",tracks,signals(),favorites,discoveryPool.related(mid).map {"qq:$it"}.toSet(),value.intent,value.scoreSignals)
         val plan=SurpriseRecommendations.compose(base,tracks,signals(),favorites,"qq:$mid",
             app?.getSharedPreferences("resonance_settings",Context.MODE_PRIVATE)?.getBoolean("qq_surprise_enabled",true)==true,surpriseId,intent=value.intent)
         surpriseId=plan.picks.firstOrNull {it.surprise}?.track?.mediaId
@@ -391,7 +405,7 @@ object QqLibrary {
         val limit = if (!manual && value.taggedCount == 0) minOf(2, budget) else budget
         val seeds = value.favorites.filter { !discoveryPool.fresh(it.mid, now) &&
             (discoveryRetryAt[it.mid] ?: 0) <= now && it.mid !in pendingSeeds && it.mid != activeDiscoveryMid && (manual || it.mid !in automaticSeeds) }
-        DiscoverySeedPolicy.select(seeds, value.genres, signals(), limit).forEach { seed ->
+        DiscoverySeedPolicy.select(seeds, value.genres, value.scoreSignals, limit).forEach { seed ->
             if (!manual) automaticSeeds.add(seed.mid)
             enqueueDiscovery(seed.mid)
         }

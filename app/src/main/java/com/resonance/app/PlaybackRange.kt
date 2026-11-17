@@ -17,11 +17,11 @@ object PlaybackQueuePolicy {
 }
 
 object DirectionFallback {
-    fun plan(original:StylePlan,tracks:List<StyleTrack>,events:List<ListeningSignal>,favorites:Set<String>,current:String):StylePlan {
+    fun plan(original:StylePlan,tracks:List<StyleTrack>,events:List<ListeningSignal>,favorites:Set<String>,current:String,scoreEvents:List<ListeningSignal> = events):StylePlan {
         if(original.picks.isNotEmpty())return original
         if(events.takeLast(4).size<4 || events.takeLast(4).any {it.category!="fast"})return original
         val rejected=events.takeLast(20).map {it.mediaId}.toSet()+current
-        val scores=GenrePreferenceScores.calculate(tracks,events).associateBy {it.label}
+        val scores=GenrePreferenceScores.calculate(tracks,scoreEvents).associateBy {it.label}
         val pool=tracks.filter {it.mediaId !in rejected}.distinctBy {it.recordingId}.sortedByDescending {GenrePreferenceScores.preference(it,events,scores)}.toMutableList()
         val ranked=mutableListOf<StyleTrack>()
         while(pool.isNotEmpty() && ranked.size<30) {

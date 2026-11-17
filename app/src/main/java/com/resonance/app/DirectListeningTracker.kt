@@ -23,6 +23,7 @@ class DirectListeningTracker(var directionCooldownMs: Long = 0) {
         wasPlaying = playing
     }
     fun setExcerpt(value: Boolean) { excerpt = value }
+    fun resetDirection(){fastSkips=0;lastAnalysis=null}
     fun transition(nextMid: String?, nextDurationMs: Long, reason: TrackTransition, now: Long): DirectListeningEvent? {
         tick(now, false)
         val oldMid = mid

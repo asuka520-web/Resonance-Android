@@ -3,6 +3,18 @@
 A local-first Android music assistant with QQ account integration, background
 playback, favourite-first genre enrichment and recommendations. Kotlin + Compose.
 
+## v0.14.0
+
+- Prominent current tag-score cards on For You and Profile, with every label
+  reachable directly. Plain shuffle randomizes order; four-skip direction filters
+  common rejected tags and ranks candidates with these scores.
+- Explicit confirmed score reset per account; persist a new scoring window while
+  preserving history, favourites, tags, familiarity and listening time.
+- Profile listening minutes accumulate real player time across sessions/accounts,
+  independent of the 500-event history cap. Pause/buffering/seek do not inflate it.
+  One-time upgrade recovery includes only retained native-player history.
+- [Phone acceptance](docs/SCORE_TIME_TEST.md).
+
 ## v0.13.0
 
 - Direction notices show the exact confirmed target song. Recent direction history

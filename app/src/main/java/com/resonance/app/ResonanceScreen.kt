@@ -174,7 +174,7 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
     onPlayRecommendation:(String?)->Unit = {}, onPlayDiscovery:(List<String>,String?)->Unit = {_,_->},
     onSupplementMissing:()->Unit = {QqLibrary.retryMissing(true)},onSurprise:()->Unit={},
     onPlaybackMode:(String)->Unit={},onIntent:(ListeningIntent)->Unit={QqLibrary.setIntent(it)},
-    onFavorite:(String)->Unit={},onRefreshFavorite:(String)->Unit={},onEnrich:(String?)->Unit={},onPlaybackRange:(String)->Unit={}) {
+    onFavorite:(String)->Unit={},onRefreshFavorite:(String)->Unit={},onEnrich:(String?)->Unit={},onPlaybackRange:(String)->Unit={},onClearScores:()->Unit={}) {
     val context=LocalContext.current
     val settings=remember {context.getSharedPreferences("resonance_settings",0)}
     var tab by remember {mutableIntStateOf(0)}
@@ -190,6 +190,7 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
     var detailSong by remember {mutableStateOf<QqCatalogueTrack?>(null)}
     var showIntent by remember {mutableStateOf(false)}
     var scoreTab by remember {mutableStateOf(false)}
+    var showScoreReset by remember {mutableStateOf(false)}
     var showDirectionHistory by remember {mutableStateOf(false)}
     var previewNotice by remember {mutableStateOf<DirectionNotice?>(null)}
     var draftIntent by remember {mutableStateOf(ListeningIntent())}
@@ -255,6 +256,9 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                         Text("找到当下的感觉。",fontSize=29.sp,fontWeight=FontWeight.SemiBold,letterSpacing=(-.7).sp)
                         Text("熟悉的喜欢，也有下一次心动。",color=Muted,fontSize=13.sp,modifier=Modifier.padding(top=9.dp,bottom=14.dp))
                     }
+                    if(connected)item {
+                        GenreScoreSummary(library,{scoreTab=true;showIntent=true},{showScoreReset=true})
+                    }
                     item {
                         Box(Modifier.fillMaxWidth().height(205.dp).clip(RoundedCornerShape(25.dp))
                             .background(Brush.linearGradient(listOf(Color(0xFF3E5034),Color(0xFF232F22))))) {
@@ -283,7 +287,7 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                         Text(if(library.syncing)library.message else "正在自动整理曲风 · ${library.taggedCount} 首已有资料",color=Muted,fontSize=11.sp)
                     }
                     if(connected) item {
-                        OutlinedButton(onClick={draftIntent=library.intent;showIntent=true}) {Text("调整这次选歌",fontSize=12.sp)}
+                        OutlinedButton(onClick={draftIntent=library.intent;scoreTab=false;showIntent=true}) {Text("调整这次选歌",fontSize=12.sp)}
                         if(library.intent.active)Text("想听：${library.intent.wanted.sorted().joinToString {genreName(it)}.ifBlank {"不限"}}\n避开：${library.intent.excluded.sorted().joinToString {genreName(it)}.ifBlank {"不限"}}",
                             color=Muted,fontSize=11.sp,lineHeight=19.sp)
                         OutlinedButton(onClick=onSurprise) {Text("惊喜一首 · 未知曲风",fontSize=12.sp)}
@@ -328,7 +332,7 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                     item {SectionTitle("发现新歌",if(library.discovering)"发现中…" else "发现更多",if(library.discovering)null else onRefreshDiscovery)}
                     item {Text("从喜欢出发，听一点新的。",fontSize=22.sp,fontWeight=FontWeight.SemiBold)
                         Text("依据 QQ 歌曲关联与本机听歌反馈排序，分散歌手；近期跳过的歌暂时避开。",fontSize=11.sp,color=Muted,lineHeight=19.sp)}
-                    item {TextButton(onClick={draftIntent=library.intent;showIntent=true}){Text(if(library.intent.active)"修改本次想听 / 避开条件" else "设置想听 / 避开条件")}}
+                    item {TextButton(onClick={draftIntent=library.intent;scoreTab=false;showIntent=true}){Text(if(library.intent.active)"修改本次想听 / 避开条件" else "设置想听 / 避开条件")}}
                     item {OutlinedTextField(discoverySearch,{discoverySearch=it},modifier=Modifier.fillMaxWidth(),singleLine=true,
                         placeholder={Text("搜索发现里的歌曲、歌手",fontSize=12.sp)},leadingIcon={Glyph(ResonanceGlyph.SEARCH,Modifier.size(19.dp),Muted)},shape=RoundedCornerShape(15.dp))}
                     item {FilterChip(selected=unheardOnly,onClick={unheardOnly=!unheardOnly},label={Text("仅看本机无听歌记录",fontSize=12.sp)})}
@@ -399,6 +403,15 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                     }
                 } else {
                     item {Text("让音乐，适合你。",fontSize=27.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(bottom=12.dp))}
+                    item {
+                        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Brush.linearGradient(listOf(Color(0xFF35452B),Panel))).padding(22.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                            Text("陪伴时长",fontSize=14.sp,color=Lime)
+                            Text("${maxOf(library.listeningTimeMs,player.listeningTimeMs)/60000} 分钟",fontSize=34.sp,fontWeight=FontWeight.SemiBold)
+                            Text("在共鸣里，听过的每一分钟。",fontSize=12.sp,color=Cream)
+                            Text("累计实际播放时间，暂停与加载不计入。升级前仅补记现存听歌记录。",fontSize=10.sp,color=Muted,lineHeight=17.sp)
+                        }
+                    }
+                    if(connected)item {GenreScoreSummary(library,{scoreTab=true;showIntent=true},{showScoreReset=true})}
                     item {
                         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Panel).padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
                             Text("QQ 音乐",fontSize=20.sp,fontWeight=FontWeight.SemiBold)
@@ -497,6 +510,7 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                 }
                 if(scoreTab) {
                     GenreScorePanel(library)
+                    OutlinedButton(onClick={showScoreReset=true},modifier=Modifier.fillMaxWidth()){Text("清除当前所有分数")}
                 } else {
                 Text("检查歌曲的全部已有标签。想听可多选，避开项优先；条件不会替歌曲添加标签。",fontSize=12.sp,color=Muted,lineHeight=20.sp)
                 val choices=(library.genres.values.flatMap {it.labels}+listOf("pop","rock","folk","jazz","electronic","r&b","hip hop")).distinct().sorted()
@@ -517,6 +531,11 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                 }
             }
         }
+        if(showScoreReset)AlertDialog(onDismissRequest={showScoreReset=false},containerColor=Panel,
+            title={Text("清除当前所有分数？")},
+            text={Text("当前账号的全部标签分数归零，之后按新的听歌反馈积累。保留收藏、曲风、听歌记录和陪伴时长；正在播放的歌曲继续播放。")},
+            confirmButton={TextButton(onClick={showScoreReset=false;onClearScores()}){Text("确认清零")}},
+            dismissButton={TextButton(onClick={showScoreReset=false}){Text("取消")}})
         if(showDirectionHistory)ModalBottomSheet(onDismissRequest={showDirectionHistory=false},containerColor=Ink,
             sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
             LazyColumn(Modifier.fillMaxWidth().navigationBarsPadding(),contentPadding=PaddingValues(24.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
@@ -597,8 +616,7 @@ fun DirectionChangeBanner(notice:DirectionNotice?,modifier:Modifier=Modifier) {
 private fun scoreText(value:Double)=String.format(java.util.Locale.ROOT,"%+.1f",value)
 private fun directionStateName(state:String)=when(state){"PLAYING"->"已确认播放";"FAILED"->"播放失败";"CANCELED"->"已取消";"UNCONFIRMED"->"未确认播放";else->"正在切换"}
 @Composable private fun GenreScorePanel(library:LibraryState) {
-    val tracks=library.allTracks.map {song->StyleTrack("qq:"+song.mid,song.name,song.artist,library.genres[song.mid]?.recordingId?.ifBlank {"qq:"+song.mid}?:"qq:"+song.mid,library.genres[song.mid]?.labels.orEmpty())}
-    val scores=GenrePreferenceScores.calculate(tracks,library.listening)
+    val scores=remember(library.allTracks,library.genres,library.scoreSignals){library.genreScores()}
     Text("分数越高越倾向推荐；全部已有标签都会列出。没有收听记录的标签为 0。",fontSize=12.sp,color=Muted,lineHeight=20.sp)
     Text("听完 +2 · 中途切歌 −1 · 有效快跳 −3。多标签平分反馈；综合分 = 最近 20 条 ×70% + 最近 500 条归一到 20 条 ×30%。这是偏好参考分，不是情绪识别。",fontSize=11.sp,color=Muted,lineHeight=19.sp)
     Text("综合分用于候选排序；四连跳还会避开共同被跳过的标签，手动条件优先。",fontSize=11.sp,color=Muted,lineHeight=19.sp)
@@ -609,6 +627,26 @@ private fun directionStateName(state:String)=when(state){"PLAYING"->"已确认�
             Column(Modifier.weight(1f)) {Text(genreName(row.label),fontSize=14.sp);Text("${row.observations} 次记录",fontSize=10.sp,color=Muted)}
             Text("${scoreText(row.recent)} / ${scoreText(row.longTerm)} / ${scoreText(row.combined)}",fontSize=12.sp,color=if(row.combined<0)Color(0xFFCE9E91) else Lime)
         }
+    }
+}
+@Composable private fun GenreScoreSummary(library:LibraryState,onAll:()->Unit,onClear:()->Unit) {
+    val scores=remember(library.allTracks,library.genres,library.scoreSignals){library.genreScores()}
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Panel).padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+            Text("当前标签分数",fontSize=17.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.weight(1f))
+            TextButton(onClick=onAll,contentPadding=PaddingValues(horizontal=6.dp)){Text("查看全部 ${scores.size} 项",fontSize=11.sp)}
+        }
+        if(scores.isEmpty())Text("暂无曲风标签，取得资料后会在这里显示。",fontSize=12.sp,color=Muted)
+        else Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            scores.sortedByDescending {kotlin.math.abs(it.combined)}.forEach {row ->
+                Column(Modifier.clip(RoundedCornerShape(12.dp)).background(Ink).padding(horizontal=14.dp,vertical=10.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                    Text(genreName(row.label),fontSize=11.sp,color=Muted)
+                    Text(scoreText(row.combined),fontSize=21.sp,fontWeight=FontWeight.Medium,color=if(row.combined<0)Color(0xFFCE9E91) else Lime)
+                }
+            }
+        }
+        Text("四连跳先避开共同标签，再参考分数选候选；普通随机负责打乱顺序。",fontSize=11.sp,color=Muted,lineHeight=18.sp)
+        TextButton(onClick=onClear,contentPadding=PaddingValues(0.dp)){Text("清除当前所有分数",fontSize=11.sp,color=Muted)}
     }
 }
 @Composable private fun SettingSwitch(title:String,detail:String,checked:Boolean,onChange:(Boolean)->Unit) {

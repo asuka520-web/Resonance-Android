@@ -1,6 +1,9 @@
 package com.resonance.app
 
 data class GenreScore(val label:String,val recent:Double,val longTerm:Double,val combined:Double,val observations:Int)
+fun LibraryState.genreScores()=GenrePreferenceScores.calculate(allTracks.map {song->
+    StyleTrack("qq:${song.mid}",song.name,song.artist,genres[song.mid]?.recordingId?.ifBlank {"qq:${song.mid}"}?:"qq:${song.mid}",genres[song.mid]?.labels.orEmpty())
+},scoreSignals)
 object GenrePreferenceScores {
     fun calculate(tracks:List<StyleTrack>,events:List<ListeningSignal>):List<GenreScore> {
         val byId=tracks.associateBy {it.mediaId}

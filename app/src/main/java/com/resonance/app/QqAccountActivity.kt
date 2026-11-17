@@ -142,7 +142,7 @@ class QqAccountActivity : ComponentActivity() {
                     val range=PlaybackRange.parse(name)
                     getSharedPreferences("resonance_settings",MODE_PRIVATE).edit().putString("qq_playback_range",range.name).apply()
                     PlaybackStateBus.publish(PlaybackStateBus.value.copy(playbackRange=range.name))
-                })
+                },onClearScores=QqLibrary::clearScores)
             if (showLogin) ResonanceTheme {
                 ModalBottomSheet(onDismissRequest = { closeLogin() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
                     modifier = Modifier.fillMaxHeight(.96f)) {

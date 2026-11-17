@@ -37,7 +37,7 @@ data class PlayerStatus(val mid: String = "", val playing: Boolean = false, val 
                         val message: String = "选一首歌，开启今天的共鸣。", val excerpt: Boolean = false,
                         val playRequested: Boolean = false, val directionNotice:DirectionNotice?=null,
                         val playbackMode:String=PlaybackMode.SEQUENTIAL.name,val queueSize:Int=0,
-                        val playbackRange:String=PlaybackRange.LIBRARY.name)
+                        val playbackRange:String=PlaybackRange.LIBRARY.name,val listeningTimeMs:Long=0)
 object PlaybackStateBus {
     var value = PlayerStatus()
         private set
@@ -90,6 +90,23 @@ class ResonancePlaybackService : MediaSessionService() {
     private var lastIntent=ListeningIntent()
     private var pendingDirection:Long?=null
     private var automaticAvoided=emptySet<String>()
+    private lateinit var listeningTime:ListeningTimeCounter
+    private var lastTimeSave=0L
+    private var scoreEpoch=0L
+    private fun tickListeningTime(playing:Boolean,forceSave:Boolean=false) {
+        val now=SystemClock.elapsedRealtime()
+        listeningTime.tick(now,playing)
+        if(forceSave || !playing || now-lastTimeSave>=15000) {
+            ListeningTimeStore.save(this,listeningTime.totalMs);lastTimeSave=now
+        }
+    }
+    private fun applyScoreReset() {
+        if(historyScope!=QqLibrary.state.accountScope || scoreEpoch==QqLibrary.state.scoreEpoch)return
+        scoreEpoch=QqLibrary.state.scoreEpoch
+        tracker.resetDirection();automaticAvoided=emptySet();noticeGate.cancel();directionNotice=null
+        pendingDirection?.let {QqLibrary.updateDirection(it,"CANCELED","标签分数已清除，取消此前的换向确认。")};pendingDirection=null
+        adjustRangeQueue()
+    }
     private fun selectedRange()=PlaybackRange.parse(getSharedPreferences("resonance_settings",MODE_PRIVATE).getString("qq_playback_range",PlaybackRange.LIBRARY.name).orEmpty())
     private fun adjustRangeQueue() {
         if(player.mediaItemCount==0)return
@@ -111,15 +128,18 @@ class ResonancePlaybackService : MediaSessionService() {
     private val poll = object : Runnable {
         override fun run() {
             tracker.tick(SystemClock.elapsedRealtime(), player.isPlaying)
+            tickListeningTime(player.isPlaying)
             val current = QqSessionManager.active
             if (current != null && historyScope != CatalogueStore.scope(current.userId)) {
                 player.stop(); player.clearMediaItems(); tracker.suspend(SystemClock.elapsedRealtime())
                 historyScope = CatalogueStore.scope(current.userId)
+                scoreEpoch=QqLibrary.state.scoreEpoch
                 noticeGate.cancel();directionNotice=null
                 pendingDirection=null;automaticAvoided=emptySet()
             }
             if (current == null && player.mediaItemCount > 0) { noticeGate.cancel();pendingDirection=null;directionNotice=null;player.stop(); player.clearMediaItems(); message = "账号已退出，播放已停止。" }
             val mid = player.currentMediaItem?.mediaId.orEmpty().removePrefix("qq:")
+            applyScoreReset()
             if(lastRange!=selectedRange() || lastIntent!=QqLibrary.state.intent)adjustRangeQueue()
             val confirmation=noticeGate.observe(mid,player.isPlaying,player.currentPosition,excerpt,SystemClock.elapsedRealtime())
             if(confirmation!=null) {
@@ -137,7 +157,7 @@ class ResonancePlaybackService : MediaSessionService() {
             PlaybackStateBus.publish(PlayerStatus(mid, player.isPlaying, player.playbackState == Player.STATE_BUFFERING,
                 player.currentPosition.coerceAtLeast(0), QqLibrary.track(mid)?.durationMs ?: 0, tracker.fastSkips, message, excerpt, player.playWhenReady,
                 directionNotice?.takeIf {SystemClock.elapsedRealtime()-it.createdAt<3500},
-                PlaybackMode.fromPlayer(player.repeatMode,player.shuffleModeEnabled).name,player.mediaItemCount,selectedRange().name))
+                PlaybackMode.fromPlayer(player.repeatMode,player.shuffleModeEnabled).name,player.mediaItemCount,selectedRange().name,listeningTime.totalMs))
             handler.postDelayed(this, 1000)
         }
     }
@@ -145,6 +165,8 @@ class ResonancePlaybackService : MediaSessionService() {
         super.onCreate()
         val account = QqSessionManager.refresh()
         QqLibrary.activate(this, account)
+        listeningTime=ListeningTimeCounter(ListeningTimeStore.totalMs(this))
+        scoreEpoch=QqLibrary.state.scoreEpoch
         historyScope = account?.let { CatalogueStore.scope(it.userId) }.orEmpty()
         database = StandaloneDatabaseProvider(this)
         cache = SimpleCache(File(cacheDir, "qq-audio"), LeastRecentlyUsedCacheEvictor(100L * 1024 * 1024), database)
@@ -166,9 +188,10 @@ class ResonancePlaybackService : MediaSessionService() {
                 .putString("qq_playback_mode",PlaybackMode.fromPlayer(player.repeatMode,player.shuffleModeEnabled).name).apply();adjustRangeQueue()}
             override fun onRepeatModeChanged(repeatMode:Int){saveMode()}
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled:Boolean){saveMode()}
-            override fun onIsPlayingChanged(isPlaying: Boolean) { tracker.tick(SystemClock.elapsedRealtime(), isPlaying) }
+            override fun onIsPlayingChanged(isPlaying: Boolean) { tracker.tick(SystemClock.elapsedRealtime(), isPlaying);tickListeningTime(isPlaying) }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val mid = mediaItem?.mediaId?.removePrefix("qq:")
+                applyScoreReset()
                 if (mid != null) QqLibrary.prioritize(mid)
                 val kind = if (reason in setOf(Player.MEDIA_ITEM_TRANSITION_REASON_AUTO,Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT)) TrackTransition.NATURAL else nextTransition
                 if(kind==TrackTransition.USER || kind==TrackTransition.NATURAL) {
@@ -193,8 +216,9 @@ class ResonancePlaybackService : MediaSessionService() {
                     QqLibrary.refreshListening()
                     if (event.changeDirection && getSharedPreferences("resonance_settings", MODE_PRIVATE).getBoolean("qq_auto_direction", true)) {
                         val requestedScope=historyScope
+                        val requestedEpoch=QqLibrary.state.scoreEpoch
                         handler.post {
-                            if(historyScope!=requestedScope || player.currentMediaItem?.mediaId?.removePrefix("qq:")!=mid || !player.playWhenReady)return@post
+                            if(historyScope!=requestedScope || QqLibrary.state.scoreEpoch!=requestedEpoch || player.currentMediaItem?.mediaId?.removePrefix("qq:")!=mid || !player.playWhenReady)return@post
                             val plan = QqLibrary.direction(mid.orEmpty())
                             val items = plan.picks.mapNotNull { QqLibrary.track(it.track.mediaId.removePrefix("qq:")) }.map(CatalogueMediaItems::recommendationItem)
                             if (items.isNotEmpty() && QqSessionManager.active != null) {
@@ -293,11 +317,12 @@ class ResonancePlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        tickListeningTime(false,true)
         pendingDirection?.let {QqLibrary.updateDirection(it,"UNCONFIRMED","播放服务已停止，未确认目标播放。")};pendingDirection=null;noticeGate.cancel()
         tracker.suspend(SystemClock.elapsedRealtime())
         mediaSession?.release(); player.release(); cache.release(); database.close()
         mediaSession = null
-        PlaybackStateBus.publish(PlayerStatus(message = "播放服务已停止。"))
+        PlaybackStateBus.publish(PlayerStatus(message = "播放服务已停止。",listeningTimeMs=listeningTime.totalMs))
         super.onDestroy()
     }
 }

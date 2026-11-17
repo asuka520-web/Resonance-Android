@@ -111,13 +111,27 @@ object CatalogueStore {
     fun events(context: Context, scope: String): JSONArray = try {
         JSONArray(library(context, scope).getString("playerEvents", "[]"))
     } catch (_: Exception) { JSONArray() }
+    fun scoreEvents(context:Context,scope:String):JSONArray = try {
+        val prefs=library(context,scope)
+        JSONArray(prefs.getString("scoreEvents",null)?:prefs.getString("playerEvents","[]"))
+    }catch(_:Exception){JSONArray()}
+    fun scoreEpoch(context:Context,scope:String)=library(context,scope).getLong("scoreEpoch",0)
+    fun clearScores(context:Context,scope:String):Long {
+        val epoch=scoreEpoch(context,scope)+1
+        library(context,scope).edit().putString("scoreEvents","[]").putLong("scoreEpoch",epoch).apply()
+        return epoch
+    }
     fun record(context: Context, scope: String, mid: String, playedMs: Long, durationMs: Long, category: String, reason: String) {
         val rows = events(context, scope)
-        rows.put(JSONObject().put("mediaId", "qq:$mid").put("playedMs", playedMs).put("durationMs", durationMs)
-            .put("category", category).put("reason", reason).put("timestamp", System.currentTimeMillis()).put("provider", "qq"))
+        val scoring=scoreEvents(context,scope)
+        val event=JSONObject().put("mediaId", "qq:$mid").put("playedMs", playedMs).put("durationMs", durationMs)
+            .put("category", category).put("reason", reason).put("timestamp", System.currentTimeMillis()).put("provider", "qq")
+        rows.put(event);scoring.put(event)
         val retained = JSONArray()
         for (i in maxOf(0, rows.length() - 500) until rows.length()) retained.put(rows.get(i))
-        library(context, scope).edit().putString("playerEvents", retained.toString()).apply()
+        val retainedScores=JSONArray()
+        for(i in maxOf(0,scoring.length()-500) until scoring.length())retainedScores.put(scoring.get(i))
+        library(context, scope).edit().putString("playerEvents", retained.toString()).putString("scoreEvents",retainedScores.toString()).apply()
     }
     fun artwork(song: QqCatalogueTrack): String? = song.albumMid.takeIf { it.matches(Regex("[A-Za-z0-9]{1,80}")) }
         ?.let { "https://y.qq.com/music/photo_new/T002R300x300M000$it.jpg" }
