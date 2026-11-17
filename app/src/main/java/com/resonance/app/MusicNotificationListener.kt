@@ -12,9 +12,25 @@ import android.service.notification.NotificationListenerService
 import org.json.JSONArray
 import org.json.JSONObject
 
+data class MetadataDiagnostics(
+    val mediaId: String = "",
+    val rawTitle: String = "",
+    val displayTitle: String = "",
+    val artist: String = "",
+    val album: String = "",
+    val subtitle: String = "",
+    val description: String = "",
+    val durationMs: Long = 0L,
+    val positionMs: Long = -1L,
+    val playing: Boolean = false,
+    val titleChangedWithinId: Boolean = false,
+    val displayTitleChangedWithinId: Boolean = false
+)
+
 data class MusicSnapshot(
     val title: String, val skips: Int, val analysis: String,
-    val fast: Int = 0, val partial: Int = 0, val completed: Int = 0
+    val fast: Int = 0, val partial: Int = 0, val completed: Int = 0,
+    val diagnostics: MetadataDiagnostics = MetadataDiagnostics()
 )
 
 object MusicState {
@@ -36,6 +52,11 @@ class MusicNotificationListener : NotificationListenerService() {
     private var lastPosition = -1L
     private var lastObservedAt = 0L
     private var lastDisplay = "等待 QQ 音乐播放"
+    private var diagnostics = MetadataDiagnostics()
+    private var previousRawTitle: String? = null
+    private var previousDisplayTitle: String? = null
+    private var rawTitleChanged = false
+    private var displayTitleChanged = false
     private var consecutiveFastSkips = 0
     private var lastAnalysis = 0L
     private var analysisMessage = "等待歌曲切换"
@@ -43,7 +64,7 @@ class MusicNotificationListener : NotificationListenerService() {
     private val poll = object : Runnable {
         override fun run() {
             try { checkSession() } catch (_: Exception) {
-                MusicState.publish(MusicSnapshot(lastDisplay, consecutiveFastSkips, "媒体读取暂时失败"))
+                publish("媒体读取暂时失败")
             }
             handler.postDelayed(this, 1200L)
         }
@@ -62,6 +83,7 @@ class MusicNotificationListener : NotificationListenerService() {
         val qq = manager.getActiveSessions(ComponentName(this, MusicNotificationListener::class.java))
             .firstOrNull { it.packageName == "com.tencent.qqmusic" }
         if (qq == null) {
+            diagnostics = MetadataDiagnostics()
             // A temporarily missing session is not evidence of a skip.
             publish("未检测到 QQ 音乐媒体会话")
             return
@@ -71,6 +93,12 @@ class MusicNotificationListener : NotificationListenerService() {
         val now = SystemClock.elapsedRealtime()
         val id = metadata.getString(MediaMetadata.METADATA_KEY_MEDIA_ID)?.takeIf { it.isNotBlank() }
         val duration = metadata.getLong(MediaMetadata.METADATA_KEY_DURATION)
+        val rawTitle = metadata.getString(MediaMetadata.METADATA_KEY_TITLE).orEmpty()
+        val displayTitle = metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE).orEmpty()
+        val artist = metadata.getString(MediaMetadata.METADATA_KEY_ARTIST).orEmpty()
+        val album = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM).orEmpty()
+        val subtitle = metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE).orEmpty()
+        val description = metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_DESCRIPTION).orEmpty()
         val position = if (state.position >= 0L) {
             if (state.state == PlaybackState.STATE_PLAYING)
                 state.position + ((now - state.lastPositionUpdateTime).coerceAtLeast(0L) * state.playbackSpeed).toLong()
@@ -78,6 +106,23 @@ class MusicNotificationListener : NotificationListenerService() {
         } else -1L
 
         // QQ Music exposes changing lyric lines in TITLE. Never use TITLE for identity.
+        if (id != null && id == lastMediaId) {
+            if (previousRawTitle != null && previousRawTitle != rawTitle) rawTitleChanged = true
+            if (previousDisplayTitle != null && previousDisplayTitle != displayTitle) displayTitleChanged = true
+        } else {
+            rawTitleChanged = false
+            displayTitleChanged = false
+        }
+        previousRawTitle = rawTitle
+        previousDisplayTitle = displayTitle
+        diagnostics = MetadataDiagnostics(
+            mediaId = id.orEmpty(), rawTitle = rawTitle, displayTitle = displayTitle,
+            artist = artist, album = album, subtitle = subtitle, description = description,
+            durationMs = duration, positionMs = position,
+            playing = state.state == PlaybackState.STATE_PLAYING,
+            titleChangedWithinId = rawTitleChanged,
+            displayTitleChangedWithinId = displayTitleChanged
+        )
         if (id != null && lastMediaId != null && id != lastMediaId) {
             if (lastDuration > 0L && lastPosition >= 0L &&
                 lastObservedAt > 0L && now - lastObservedAt < 15_000L) {
@@ -145,6 +190,6 @@ class MusicNotificationListener : NotificationListenerService() {
                 "completed" -> completed++
             }
         }
-        MusicState.publish(MusicSnapshot(title, consecutiveFastSkips, analysisMessage, fast, partial, completed))
+        MusicState.publish(MusicSnapshot(title, consecutiveFastSkips, analysisMessage, fast, partial, completed, diagnostics))
     }
 }
