@@ -3,6 +3,24 @@
 A local-first Android music assistant with QQ account integration, background
 playback, favourite-first genre enrichment and recommendations. Kotlin + Compose.
 
+## v0.12.0
+
+- Optional unknown-genre surprise slot (at most one per batch), with a manual
+  draw action. Preserve unknown labels and actual familiarity; never substitute
+  these songs for a verified different style during automatic direction changes.
+- A small, touch-through direction notice fades in/out after confirmed playback
+  progress, including on player/detail sheets; no notification on mere requests.
+- Sequential, list-loop, shuffle and single-repeat controls, visible previous
+  controls in the mini-player and queue/history fallback when a batch starts.
+- Explicit multi-tag wanted/excluded conditions with any/all matching; exclusions
+  take priority and unknown labels cannot bypass active intent. Match every tag.
+- Automatic direction uses the more discriminating majority-shared tag, avoiding
+  unnecessarily discarding all Pop when finer common evidence exists.
+- Complete list tags fit by actual width; song details expose all tags and source.
+- [Phone acceptance](docs/SURPRISE_PLAYER_TEST.md).
+  [Separate local audio probe](experiments/audio-tagging/README.md) is experimental,
+  does not update phone tags, and is not an accuracy or phone-integration claim.
+
 ## v0.11.0
 
 - Browse the outside-favourite pool in a dedicated Discovery tab, with source

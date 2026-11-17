@@ -44,6 +44,22 @@ them against both Android's Kotlin rules and the PC validation implementation.
 Desktop event replay is read-only and does not reproduce Android permissions or
 notification-service lifecycle. See `docs/TESTING_STRATEGY.md`.
 
+## v0.12.0 user-requested work
+
+The user resumed development after deferring list-tag layout. The requested
+change is now included: complete tags underneath each song fit by actual width,
+overflow hidden, all tags in a non-playing song-detail sheet. The user approved
+optional unknown-genre surprise picks and a non-blocking fade notice on actual
+automatic direction changes, then added playback modes/previous and multi-tag
+wanted/excluded intent. See `docs/SURPRISE_PLAYER_TEST.md`.
+Unknown surprise picks must retain their unknown evidence state, respect history
+and familiarity, and never be used as proof of another genre. Active explicit
+intent blocks unknown candidates. Direction notices require actual progress,
+not just queue replacement. The separate PC audio probe only proves a local
+inference path on synthetic input; it does not validate Chinese-song accuracy,
+phone performance or create verified catalogue tags. Do not bundle model weights
+or its research-only dependencies with the Android or desktop validator releases.
+
 ## Before editing
 - Read `README.md` and `docs/LOCAL_DEVELOPMENT.md`.
 - Inspect the current implementation before changing it. Do not assume old chat summaries describe the current source.

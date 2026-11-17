@@ -65,6 +65,25 @@ class QqAccountActivity : ComponentActivity() {
         active.prepare(); active.play()
         QqLibrary.prioritize(songs[index].mid)
     }
+    private fun previous() {
+        val active=controller?:return
+        if(active.hasPreviousMediaItem()){active.seekToPreviousMediaItem();return}
+        val current=active.currentMediaItem?.mediaId.orEmpty()
+        val previous=QqLibrary.signals().asReversed().firstNotNullOfOrNull {event ->
+            if(event.mediaId==current)null else QqLibrary.track(event.mediaId.removePrefix("qq:"))}
+        if(previous==null){active.seekTo(0);QqLibrary.notice("已经是队列第一首，已回到开头。");return}
+        val item=if(active.currentMediaItem?.mediaMetadata?.extras?.getBoolean(CatalogueMediaItems.FIXED_QUEUE)==true)
+            CatalogueMediaItems.recommendationItem(previous) else CatalogueMediaItems.item(previous)
+        active.addMediaItem(0,item);active.seekTo(0,0)
+    }
+    private fun setPlaybackMode(name:String) {
+        val mode=PlaybackMode.parse(name)
+        getSharedPreferences("resonance_settings",MODE_PRIVATE).edit().putString("qq_playback_mode",mode.name).apply()
+        controller?.let {active ->
+            active.shuffleModeEnabled=mode==PlaybackMode.SHUFFLE
+            active.repeatMode=when(mode){PlaybackMode.SINGLE->Player.REPEAT_MODE_ONE;PlaybackMode.LOOP,PlaybackMode.SHUFFLE->Player.REPEAT_MODE_ALL;else->Player.REPEAT_MODE_OFF}
+        }
+    }
     @SuppressLint("SetJavaScriptEnabled")
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -104,7 +123,7 @@ class QqAccountActivity : ComponentActivity() {
                             it.prepare(); it.play()
                         }
                     }
-                }, onNext = { controller?.seekToNextMediaItem() }, onPrevious = { controller?.seekToPreviousMediaItem() },
+                }, onNext = { controller?.seekToNextMediaItem() }, onPrevious = ::previous,
                 onSeek = { fraction -> controller?.seekTo((player.durationMs * fraction).toLong()) },
                 onLogout = {
                     controller?.stop(); controller?.clearMediaItems(); QqSessionManager.clear()
@@ -113,7 +132,8 @@ class QqAccountActivity : ComponentActivity() {
                     CookieManager.getInstance().removeAllCookies { CookieManager.getInstance().flush() }
                 }, onLegacy = { startActivity(Intent(this@QqAccountActivity, MainActivity::class.java)) },
                 onPlaylists = { QqLibrary.loadPlaylists() }, onPlaylist = { QqLibrary.openPlaylist(it) },
-                onPlayRecommendation = ::playRecommendation, onPlayDiscovery = ::playBatch)
+                onPlayRecommendation = ::playRecommendation, onPlayDiscovery = ::playBatch,
+                onSurprise={if(QqLibrary.surprise(PlaybackStateBus.value.mid).picks.isNotEmpty())playRecommendation(null)},onPlaybackMode=::setPlaybackMode)
             if (showLogin) ResonanceTheme {
                 ModalBottomSheet(onDismissRequest = { closeLogin() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
                     modifier = Modifier.fillMaxHeight(.96f)) {

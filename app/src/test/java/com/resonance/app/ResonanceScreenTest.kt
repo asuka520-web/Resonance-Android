@@ -2,6 +2,14 @@ package com.resonance.app
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.os.SystemClock
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.mutableStateOf
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -27,7 +35,18 @@ class ResonanceScreenTest {
         compose.runOnIdle {
             val view=compose.activity.window.decorView
             val bitmap=Bitmap.createBitmap(view.width,view.height,Bitmap.Config.ARGB_8888)
-            view.draw(Canvas(bitmap))
+            val canvas=Canvas(bitmap)
+            val roots=runCatching {
+                val type=Class.forName("android.view.WindowManagerGlobal")
+                val instance=type.getDeclaredMethod("getInstance").invoke(null)
+                val field=type.getDeclaredField("mViews").apply {isAccessible=true}
+                @Suppress("UNCHECKED_CAST")
+                (field.get(instance) as List<android.view.View>).toList()
+            }.getOrDefault(listOf(view))
+            roots.filter {it.visibility==android.view.View.VISIBLE && it.width>0}.forEach {root ->
+                val location=IntArray(2);root.getLocationOnScreen(location)
+                val saved=canvas.save();canvas.translate(location[0].toFloat(),location[1].toFloat());root.draw(canvas);canvas.restoreToCount(saved)
+            }
             file.outputStream().use {output -> bitmap.compress(Bitmap.CompressFormat.PNG,100,output)}
         }
     }
@@ -54,7 +73,7 @@ class ResonanceScreenTest {
         val genres=songs.mapIndexed {i,song -> song.mid to CatalogueGenre(song.mid,setOf(labels[i]),"qq-song-detail","test fixture",0,Long.MAX_VALUE)}.toMap()
         show(LibraryState(accountScope="test-only",favorites=songs,genres=genres),PlayerStatus(mid="test0",playing=true,positionMs=50000,durationMs=200000))
         compose.onNodeWithText("100%").assertIsDisplayed()
-        compose.onAllNodesWithText("晚风经过").assertCountEquals(2)
+        compose.onAllNodesWithText("晚风经过").onFirst().assertIsDisplayed()
         capture("home-connected-test-data")
     }
     @Test fun openedPlaylistExposesSongsOutsideFavoritesForPlayback() {
@@ -78,7 +97,8 @@ class ResonanceScreenTest {
         compose.onNodeWithText("已有曲风 1 · 等待查询 1\n待重试 1 · 暂无资料 1").assertIsDisplayed()
         compose.onNodeWithText("重试未取得曲风").performClick()
         assertTrue(retried)
-        compose.onNodeWithText("流行 · 灵魂乐").assertExists()
+        compose.onNodeWithText("流行").assertExists()
+        compose.onNodeWithText("灵魂乐").assertExists()
         capture("library-status-test-data")
     }
     @Test fun recommendationBatchButtonAndSongSelectionUseRecommendationQueueCallback() {
@@ -123,5 +143,63 @@ class ResonanceScreenTest {
         compose.onNodeWithText("重试未取得曲风").assertIsEnabled()
         compose.onNodeWithText("换来源补齐").performClick()
         assertTrue(secondary)
+    }
+    @Test fun listTagsFitByWidthAndDetailsExposeEverySavedLabelWithoutStartingPlayback() {
+        val song=QqCatalogueTrack("tags","tags","多标签测试歌","歌手","专辑",200000)
+        val labels=setOf("ambient","electronic","folk","jazz","pop","rock")
+        var played=false
+        show(LibraryState(accountScope="test",favorites=listOf(song),genres=mapOf("tags" to CatalogueGenre("tags",labels,"qq-song-detail","",0,999)))){played=true}
+        compose.onNodeWithText("收藏",useUnmergedTree=true).performClick()
+        compose.onNodeWithContentDescription("多标签测试歌的歌曲详情").performClick()
+        compose.onNodeWithText("全部曲风标签").assertIsDisplayed()
+        compose.onNodeWithText("ambient · 电子 · 民谣 · 爵士 · 流行 · 摇滚").assertIsDisplayed()
+        assertFalse(played)
+        capture("detail-tags-test-data")
+    }
+    @Test fun tagLineShowsMoreThanTwoCompleteTagsWhenWidthAllows() {
+        compose.setContent {ResonanceTheme {Box(Modifier.width(360.dp)){CompleteTagRow(setOf("pop","rock","folk","jazz"))}}}
+        for(tag in listOf("流行","摇滚","民谣","爵士"))compose.onNodeWithText(tag).assertIsDisplayed()
+    }
+    @Test fun directionHintFadesAwayAndDoesNotConsumeTouches() {
+        compose.mainClock.autoAdvance=false
+        var clicks=0
+        val now=SystemClock.elapsedRealtime()
+        compose.setContent {ResonanceTheme {Box(Modifier.fillMaxSize()) {
+            Button(onClick={clicks++},modifier=Modifier.align(Alignment.TopCenter)){Text("底下的操作")}
+            DirectionChangeBanner(DirectionNotice(1,now,setOf("jazz")),Modifier.align(Alignment.TopCenter))
+        }}}
+        compose.mainClock.advanceTimeBy(250)
+        compose.onNodeWithText("已换个方向 · 爵士").assertIsDisplayed()
+        compose.onNodeWithText("底下的操作").performTouchInput {click()}
+        assertEquals(1,clicks)
+        capture("direction-hint-test-data")
+        compose.mainClock.advanceTimeBy(3500)
+        compose.onNodeWithText("已换个方向 · 爵士").assertDoesNotExist()
+    }
+    @Test fun miniPlayerExposesPreviousAndAllModesCanBeSelectedInThePlayer() {
+        val song=QqCatalogueTrack("mode","mode","播放模式测试歌","歌手","专辑",200000)
+        val status=mutableStateOf(PlayerStatus(mid="mode",queueSize=3))
+        var previousCalls=0
+        compose.setContent {ResonanceScreen(LibraryState(accountScope="test",favorites=listOf(song)),status.value,
+            {},{},{},{},{},{previousCalls++},{},{},{},{},{},onPlaybackMode={status.value=status.value.copy(playbackMode=it)})}
+        compose.onNodeWithContentDescription("上一首").performClick()
+        assertEquals(1,previousCalls)
+        compose.onNodeWithContentDescription("播放模式：顺序播放，点按切换").performClick()
+        assertEquals(PlaybackMode.LOOP.name,status.value.playbackMode)
+        compose.onAllNodesWithText("播放模式测试歌").onLast().performClick()
+        compose.onNodeWithText("单曲循环").performScrollTo().performClick()
+        assertEquals(PlaybackMode.SINGLE.name,status.value.playbackMode)
+        capture("player-modes-test-data")
+    }
+    @Test fun sessionIntentSheetProducesIndependentWantedAndExcludedTagSets() {
+        var selected=ListeningIntent()
+        compose.setContent {ResonanceScreen(LibraryState(accountScope="test"),PlayerStatus(),{},{},{},{},{},{},{},{},{},{},{},onIntent={selected=it})}
+        compose.onNodeWithText("调整这次选歌").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("想听爵士").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("避开摇滚").performScrollTo().performClick()
+        capture("listening-intent-test-data")
+        compose.onNodeWithText("应用并推荐").performScrollTo().performClick()
+        assertEquals(setOf("jazz"),selected.wanted)
+        assertEquals(setOf("rock"),selected.excluded)
     }
 }

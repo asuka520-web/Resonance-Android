@@ -12,7 +12,7 @@ data class LibraryState(
     val openedPlaylist: QqCataloguePlaylist? = null, val playlistTracks: List<QqCatalogueTrack> = emptyList(),
     val discovering: Boolean = false, val activeGenreMid: String = "", val discoveryMessage: String = "",
     val discoverySources: Map<String,List<String>> = emptyMap(), val listening: List<ListeningSignal> = emptyList(),
-    val retryScheduled: Boolean = false
+    val retryScheduled: Boolean = false,val intent:ListeningIntent=ListeningIntent()
 ) {
     val allTracks get() = (favorites + discoveries).distinctBy { it.mid }
     val taggedCount get() = favorites.count { genres[it.mid]?.labels?.isNotEmpty() == true }
@@ -37,6 +37,7 @@ object QqLibrary {
     private val supplementOnly = mutableSetOf<String>()
     private val priority = linkedSetOf<String>()
     private var recommendationAnchor: String? = null
+    private var surpriseId:String?=null
     private var generation = 0L
     @Volatile private var value = LibraryState()
     private val listeners = mutableSetOf<(LibraryState) -> Unit>()
@@ -54,11 +55,15 @@ object QqLibrary {
             generation++
             syncJob?.cancel(); genreJob?.cancel(); discoveryJob?.cancel()
             pendingSeeds.clear(); discoveryRetryAt.clear(); automaticSeeds.clear(); forcedGenres.clear(); supplementOnly.clear(); activeDiscoveryMid = ""
-            priority.clear(); recommendationAnchor = null
+            priority.clear(); recommendationAnchor = null;surpriseId=null
             val saved = if (key.isBlank()) emptyList() else CatalogueStore.songs(context, key)
             discoveryPool = if (key.isBlank()) DiscoveryPool() else CatalogueStore.discovery(context, key)
             val genres = (saved + discoveryPool.tracks).mapNotNull { song -> CatalogueStore.genre(context, song.mid)?.let { song.mid to it } }.toMap()
+            val preferences=context.getSharedPreferences("qq_intent_$key",Context.MODE_PRIVATE)
+            val intent=if(key.isBlank())ListeningIntent() else ListeningIntent(preferences.getStringSet("wanted",emptySet()).orEmpty().toSet(),
+                preferences.getStringSet("excluded",emptySet()).orEmpty().toSet(),preferences.getBoolean("all",false)).normalized()
             update(LibraryState(accountScope = key, favorites = saved, discoveries = discoveryPool.tracks, genres = genres,
+                intent=intent,
                 discoverySources = discoveryPool.sources(), listening = if(key.isBlank())emptyList() else StyleRecommendations.signals(CatalogueStore.events(context,key)),
                 message = if (key.isBlank()) "连接 QQ 音乐，让收藏变成懂你的推荐。" else "QQ 音乐已连接，正在准备你的收藏。"))
         }
@@ -223,6 +228,7 @@ object QqLibrary {
     }
     fun similar(mid: String): StylePlan {
         recommendationAnchor = mid
+        surpriseId=null
         val plan = similarPlan(mid)
         update(value.copy(recommendation = plan))
         enqueueDiscovery(mid)
@@ -230,14 +236,39 @@ object QqLibrary {
     }
     fun direction(mid: String): StylePlan {
         recommendationAnchor = null
-        val plan = StyleRecommendations.changeDirection("qq:$mid", styleTracks(), signals(), value.favorites.map { "qq:${it.mid}" }.toSet())
+        val plan = StyleRecommendations.changeDirection("qq:$mid", styleTracks(), signals(), value.favorites.map { "qq:${it.mid}" }.toSet(),value.intent)
         update(value.copy(recommendation = plan))
         return plan
     }
     fun track(mid: String) = value.allTracks.firstOrNull { it.mid == mid }
     fun prioritize(mid: String) { priority.add(mid); analyze(); enqueueDiscovery(mid) }
-    private fun similarPlan(mid: String) = StyleRecommendations.similar("qq:$mid", styleTracks(true), signals(),
-        value.favorites.map { "qq:${it.mid}" }.toSet(), discoveryPool.related(mid).map { "qq:$it" }.toSet())
+    private fun similarPlan(mid: String):StylePlan {
+        val tracks=styleTracks(true)
+        val favorites=value.favorites.map {"qq:${it.mid}"}.toSet()
+        val base=StyleRecommendations.similar("qq:$mid",tracks,signals(),favorites,discoveryPool.related(mid).map {"qq:$it"}.toSet(),value.intent)
+        val plan=SurpriseRecommendations.compose(base,tracks,signals(),favorites,"qq:$mid",
+            app?.getSharedPreferences("resonance_settings",Context.MODE_PRIVATE)?.getBoolean("qq_surprise_enabled",true)==true,surpriseId,intent=value.intent)
+        surpriseId=plan.picks.firstOrNull {it.surprise}?.track?.mediaId
+        return plan
+    }
+    fun refreshRecommendationPreferences(){surpriseId=null;refreshRecommendation()}
+    fun surprise(currentMid:String):StylePlan {
+        recommendationAnchor=null;surpriseId=null
+        val plan=SurpriseRecommendations.compose(StylePlan("惊喜一首","从未知曲风歌曲中随机抽取，不推断曲风。"),
+            styleTracks(true),signals(),value.favorites.map {"qq:${it.mid}"}.toSet(),"qq:$currentMid",true,intent=value.intent)
+        update(value.copy(recommendation=plan,message=if(plan.picks.isEmpty())"暂无可抽取的未知曲风歌曲。" else "抽到一首未知曲风歌曲。"))
+        return plan
+    }
+    fun setIntent(intent:ListeningIntent) {
+        val context=app?:return
+        if(value.accountScope.isBlank())return
+        val next=intent.normalized()
+        context.getSharedPreferences("qq_intent_${value.accountScope}",Context.MODE_PRIVATE).edit()
+            .putStringSet("wanted",next.wanted).putStringSet("excluded",next.excluded).putBoolean("all",next.matchAll).apply()
+        update(value.copy(intent=next))
+        val anchor=PlaybackStateBus.value.mid.takeIf {track(it)!=null} ?: recommendationAnchor ?: value.favorites.firstOrNull()?.mid
+        if(anchor!=null)similar(anchor) else refreshRecommendationPreferences()
+    }
     private fun refreshRecommendation() {
         recommendationAnchor?.let { mid ->
             val plan = similarPlan(mid)

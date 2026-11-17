@@ -16,7 +16,7 @@ object DiscoveryBrowser {
         val preferredGenres = liked.flatMap { state.genres[it]?.labels.orEmpty() }.groupingBy { it }.eachCount()
         val remaining = state.discoveries.distinctBy { it.mid }.filter { song ->
             val info = state.genres[song.mid]
-            song.mid !in favoriteIds && song.mid !in rejected &&
+            state.intent.accepts(info?.labels.orEmpty()) && song.mid !in favoriteIds && song.mid !in rejected &&
                 (info?.recordingId.isNullOrBlank() || info?.recordingId !in favoriteRecordings) &&
                 (!unheardOnly || song.mid !in heard) &&
                 (query.isBlank() || listOf(song.name,song.artist,song.album).any { it.contains(query.trim(),true) }) &&

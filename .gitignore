@@ -19,3 +19,5 @@ desktop/.venv/
 desktop/data/
 desktop/build/
 desktop/dist/
+experiments/audio-tagging/node_modules/
+experiments/audio-tagging/.cache/
