@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Intent
 import android.content.Context
 import org.json.JSONArray
+import org.json.JSONObject
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import android.os.Bundle
@@ -32,10 +33,26 @@ class MainActivity : ComponentActivity() {
             var labelsVersion by remember { mutableIntStateOf(0) }
             var historyVersion by remember { mutableIntStateOf(0) }
             var showHistory by remember { mutableStateOf(false) }
+            var showProfile by remember { mutableStateOf(false) }
             val historyPrefs = remember { getSharedPreferences("resonance_history", Context.MODE_PRIVATE) }
             val history = remember(historyVersion, fast, partial, completed) { try { JSONArray(historyPrefs.getString("events", "[]")) } catch (_: Exception) { JSONArray() } }
             val total = fast + partial + completed
             val completionPercent = if (total == 0) 0 else completed * 100 / total
+            val songStats = remember(historyVersion, fast, partial, completed) {
+                val result = linkedMapOf<String, IntArray>()
+                for (i in 0 until history.length()) {
+                    val e = history.optJSONObject(i) ?: continue
+                    val id = e.optString("mediaId")
+                    if (id.isBlank()) continue
+                    val counts = result.getOrPut(id) { intArrayOf(0, 0, 0) }
+                    when (e.optString("category")) {
+                        "fast" -> counts[0]++
+                        "partial" -> counts[1]++
+                        "completed" -> counts[2]++
+                    }
+                }
+                result
+            }
             val prefs = remember { getSharedPreferences("resonance_song_labels", Context.MODE_PRIVATE) }
             val currentId = title.removePrefix("媒体 ID：").takeIf { title.startsWith("媒体 ID：") }
             val mappedName = remember(currentId, labelsVersion) { currentId?.let { prefs.getString(it, null) } }
@@ -68,6 +85,25 @@ class MainActivity : ComponentActivity() {
                         Text("连续快速跳过：$skips / 4")
                         Text("本地历史：快速跳过 $fast · 中途切歌 $partial · 基本听完 $completed")
                         Text("累计 $total 次行为 · 基本听完率 $completionPercent%")
+                        Button(onClick = { showProfile = !showProfile }) { Text(if (showProfile) "收起单曲偏好分析" else "查看单曲偏好分析") }
+                        if (showProfile) {
+                            Text("评分规则：基本听完 +2，快速跳过 -3，中途切歌 -1；仅供初步参考。")
+                            val ranked = songStats.map { (id, counts) ->
+                                Triple(id, counts[2] * 2 - counts[0] * 3 - counts[1], counts)
+                            }
+                            if (ranked.isEmpty()) Text("暂无足够数据")
+                            else {
+                                Text("偏好较高的歌曲")
+                                ranked.sortedByDescending { it.second }.take(5).forEach { item ->
+                                    Text((prefs.getString(item.first, null) ?: item.first) + " · " + item.second + "分 · " + item.third.sum() + "次")
+                                }
+                                Text("偏好较低的歌曲")
+                                ranked.sortedBy { it.second }.take(5).forEach { item ->
+                                    Text((prefs.getString(item.first, null) ?: item.first) + " · " + item.second + "分 · " + item.third.sum() + "次")
+                                }
+                                Text("以上是单曲行为分析，不代表曲风或情绪判断。")
+                            }
+                        }
                         LinearProgressIndicator(progress = { completionPercent / 100f }, modifier = Modifier.fillMaxWidth())
                         Button(onClick = { showHistory = !showHistory; historyVersion++ }) { Text(if (showHistory) "收起最近记录" else "查看最近 10 条记录") }
                         if (showHistory) {
@@ -80,7 +116,10 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         Button(onClick = {
-                            val export = org.json.JSONObject().put("events", history).put("exportedAt", System.currentTimeMillis()).toString(2)
+                            val labels = JSONObject()
+                            prefs.all.forEach { (id, value) -> if (value is String) labels.put(id, value) }
+                            val export = JSONObject().put("schemaVersion", 2).put("events", history)
+                                .put("songLabels", labels).put("exportedAt", System.currentTimeMillis()).toString(2)
                             val intent = Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_TEXT, export)
                             startActivity(Intent.createChooser(intent, "导出 Resonance 行为记录"))
                         }) { Text("分享 / 导出历史 JSON") }
