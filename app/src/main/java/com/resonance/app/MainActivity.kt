@@ -3,6 +3,9 @@ package com.resonance.app
 import android.content.ComponentName
 import android.content.Intent
 import android.content.Context
+import org.json.JSONArray
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -17,7 +20,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            var auto by remember { mutableStateOf(false) }
+            val settings = remember { getSharedPreferences("resonance_settings", Context.MODE_PRIVATE) }
+            var auto by remember { mutableStateOf(settings.getBoolean("auto", false)) }
             var title by remember { mutableStateOf("等待 QQ 音乐播放") }
             var skips by remember { mutableIntStateOf(0) }
             var analysis by remember { mutableStateOf("尚未触发分析") }
@@ -26,6 +30,12 @@ class MainActivity : ComponentActivity() {
             var completed by remember { mutableIntStateOf(0) }
             var customName by remember { mutableStateOf("") }
             var labelsVersion by remember { mutableIntStateOf(0) }
+            var historyVersion by remember { mutableIntStateOf(0) }
+            var showHistory by remember { mutableStateOf(false) }
+            val historyPrefs = remember { getSharedPreferences("resonance_history", Context.MODE_PRIVATE) }
+            val history = remember(historyVersion, fast, partial, completed) { try { JSONArray(historyPrefs.getString("events", "[]")) } catch (_: Exception) { JSONArray() } }
+            val total = fast + partial + completed
+            val completionPercent = if (total == 0) 0 else completed * 100 / total
             val prefs = remember { getSharedPreferences("resonance_song_labels", Context.MODE_PRIVATE) }
             val currentId = title.removePrefix("媒体 ID：").takeIf { title.startsWith("媒体 ID：") }
             val mappedName = remember(currentId, labelsVersion) { currentId?.let { prefs.getString(it, null) } }
@@ -43,7 +53,7 @@ class MainActivity : ComponentActivity() {
             }
             MaterialTheme {
                 Scaffold(topBar = { Text("Resonance · 共鸣", modifier = Modifier.padding(20.dp), style = MaterialTheme.typography.headlineSmall) }) { inner ->
-                    Column(Modifier.padding(inner).padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                    Column(Modifier.padding(inner).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                         Text("当前歌曲：${mappedName ?: title}")
                         if (currentId != null) {
                             Text("稳定歌曲 ID：$currentId", style = MaterialTheme.typography.bodySmall)
@@ -57,12 +67,29 @@ class MainActivity : ComponentActivity() {
                         }
                         Text("连续快速跳过：$skips / 4")
                         Text("本地历史：快速跳过 $fast · 中途切歌 $partial · 基本听完 $completed")
+                        Text("累计 $total 次行为 · 基本听完率 $completionPercent%")
+                        LinearProgressIndicator(progress = { completionPercent / 100f }, modifier = Modifier.fillMaxWidth())
+                        Button(onClick = { showHistory = !showHistory; historyVersion++ }) { Text(if (showHistory) "收起最近记录" else "查看最近 10 条记录") }
+                        if (showHistory) {
+                            for (i in history.length() - 1 downTo maxOf(0, history.length() - 10)) {
+                                val item = history.optJSONObject(i) ?: continue
+                                val mediaId = item.optString("mediaId")
+                                val label = prefs.getString(mediaId, null) ?: mediaId
+                                val category = when (item.optString("category")) { "fast" -> "快速跳过"; "partial" -> "中途切歌"; else -> "基本听完" }
+                                Text("$label · $category · ${item.optLong("playedMs") / 1000}秒")
+                            }
+                        }
+                        Button(onClick = {
+                            val export = org.json.JSONObject().put("events", history).put("exportedAt", System.currentTimeMillis()).toString(2)
+                            val intent = Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_TEXT, export)
+                            startActivity(Intent.createChooser(intent, "导出 Resonance 行为记录"))
+                        }) { Text("分享 / 导出历史 JSON") }
                         Text("判断规则：15 秒内快速跳过；未达 70% 为中途切歌；达到 70% 视为基本听完。")
                         Text("分析结果：$analysis")
                         Text("陌生歌曲探索：30%（曲库接口待验证）")
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text("自动模式")
-                            Switch(checked = auto, onCheckedChange = { auto = it; MusicState.autoMode = it })
+                            Switch(checked = auto, onCheckedChange = { auto = it; MusicState.autoMode = it; settings.edit().putBoolean("auto", it).apply() })
                         }
                         Text(if (auto) "自动模式：仅分析，暂不主动替换 QQ 音乐队列" else "推荐模式：仅分析，不干预播放")
                         Button(onClick = {
