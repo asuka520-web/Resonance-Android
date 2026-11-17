@@ -1,0 +1,130 @@
+# Local development on Windows (Codex + Android Studio)
+
+This repository is the source of truth. Work locally on a clone, then push commits to GitHub. GitHub Actions will build and publish the test APK.
+
+## 1. Install prerequisites
+
+- Git for Windows
+- ChatGPT desktop app with Codex, or Codex CLI
+- Android Studio
+- JDK 17
+- Android SDK Platform 35 and Android Build Tools 35.0.0
+- Gradle 8.9 (only needed once to generate the Gradle Wrapper; after that use the wrapper)
+
+The project currently uses Android Gradle Plugin 8.7.3, Kotlin 2.0.21, Gradle 8.9, JDK 17, compileSdk 35.
+
+## 2. Clone the repository
+
+Open PowerShell in the folder where you keep projects:
+
+```powershell
+git clone https://github.com/asuka520-web/Resonance-Android.git
+cd Resonance-Android
+git status
+```
+
+If the repository is already cloned, use:
+
+```powershell
+git pull origin main
+```
+
+## 3. Generate and commit the Gradle Wrapper (one-time setup)
+
+The repository CI currently installs Gradle 8.9 directly and does not yet include the Gradle Wrapper JAR. Once Gradle 8.9 is installed and available in PowerShell:
+
+```powershell
+gradle --version
+gradle wrapper --gradle-version 8.9 --distribution-type bin
+```
+
+This should generate:
+- `gradlew`
+- `gradlew.bat`
+- `gradle/wrapper/gradle-wrapper.jar`
+- `gradle/wrapper/gradle-wrapper.properties`
+
+Verify the wrapper:
+
+```powershell
+.\gradlew.bat --version
+```
+
+Commit the generated wrapper files so every developer and Codex worktree uses the same Gradle version:
+
+```powershell
+git add gradlew gradlew.bat gradle/wrapper
+git commit -m "Add Gradle wrapper"
+git push origin main
+```
+
+Do not commit a local Gradle installation or Android SDK.
+
+## 4. Open the local folder in Codex
+
+### ChatGPT desktop app
+1. Open ChatGPT desktop.
+2. Switch the product selector to **Codex**.
+3. Choose **New chat** and select the local project / **This computer** environment.
+4. Select the cloned `Resonance-Android` folder.
+5. Keep the sandbox / approval setting enabled. Do not choose unrestricted full access for routine work.
+6. Codex will read this repository's `AGENTS.md` and should follow its build and data-safety rules.
+
+### Codex CLI (alternative)
+Open PowerShell in the repository root and run:
+
+```powershell
+codex
+```
+
+The CLI uses the current directory as the project. Sign in when prompted.
+
+## 5. Open in Android Studio
+
+1. Launch Android Studio.
+2. Choose **Open** and select the repository root (the folder containing `settings.gradle.kts`).
+3. Set Gradle JDK to JDK 17.
+4. Confirm SDK Platform 35 and Build Tools 35.0.0 are installed.
+5. After the wrapper is committed, sync and build using the wrapper.
+
+## 6. Build and install
+
+```powershell
+.\gradlew.bat :app:assembleDebug
+```
+
+APK:
+`app\build\outputs\apk\debug\app-debug.apk`
+
+If an Android device is connected with USB debugging enabled:
+
+```powershell
+.\gradlew.bat :app:installDebug
+```
+
+Or copy the APK to the phone and install it manually. For an emulator, start an Android 8.0+ virtual device first.
+
+## 7. Suggested Codex first task
+
+Ask Codex:
+
+> Read AGENTS.md, README.md, and docs/LOCAL_DEVELOPMENT.md. Inspect the whole Android project and current Git status. Verify the local JDK, Gradle, Android SDK and device/emulator availability. Do not change application behavior yet. Generate and test the Gradle Wrapper if Gradle 8.9 is installed. Then run :app:assembleDebug, inspect any compiler errors and fix only build/configuration issues. Preserve existing SharedPreferences data and all tested v0.5 behavior. Do not treat QQ Music TITLE as a song name. Report exact commands, test results, APK path, and any remaining blockers.
+
+## 8. Local test checklist for v0.6
+
+- Play one QQ Music track while lyrics change. In Resonance, open **媒体元数据诊断**.
+- Observe MEDIA_ID, TITLE, DISPLAY_TITLE, ARTIST, ALBUM, DISPLAY_SUBTITLE and DISPLAY_DESCRIPTION.
+- Confirm whether MEDIA_ID remains stable during lyrics and changes when switching tracks.
+- Do not assume display fields contain the actual track title; compare against QQ Music's visible now-playing UI.
+- Confirm a song name/artist/album manually, switch away and back, and check that the confirmed cache is restored.
+- Compare short-term (latest 20 events) and long-term (latest 500 events) single-track behavior profiles.
+- Export JSON and check schemaVersion 3, events, songLabels, and songInfo.
+- Background the app and verify listening events continue to be recorded.
+- Verify existing history and song labels survived the update.
+
+## 9. Data and integration limitations
+
+- QQ Music metadata semantics vary by app version and playback surface. The diagnostics screen is observational only.
+- No verified official/public QQ Music API for arbitrary song lookup, similarity search, or playback control has been integrated.
+- The current score is a simple heuristic, not machine-learning genre recognition.
+- Automatic queue replacement and the 70/30 discovery mix are future work.
