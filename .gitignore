@@ -2,3 +2,9 @@
 /build/
 /app/build/
 *.iml
+
+# Android Studio / local machine configuration
+local.properties
+.idea/
+.cxx/
+.externalNativeBuild/
