@@ -20,11 +20,17 @@ class MainActivity : ComponentActivity() {
             var title by remember { mutableStateOf("等待 QQ 音乐播放") }
             var skips by remember { mutableIntStateOf(0) }
             var analysis by remember { mutableStateOf("尚未触发分析") }
+            var fast by remember { mutableIntStateOf(0) }
+            var partial by remember { mutableIntStateOf(0) }
+            var completed by remember { mutableIntStateOf(0) }
             DisposableEffect(Unit) {
                 val listener: (MusicSnapshot) -> Unit = { snapshot ->
                     title = snapshot.title
                     skips = snapshot.skips
                     analysis = snapshot.analysis
+                    fast = snapshot.fast
+                    partial = snapshot.partial
+                    completed = snapshot.completed
                 }
                 MusicState.subscribe(listener)
                 onDispose { MusicState.unsubscribe(listener) }
@@ -33,7 +39,9 @@ class MainActivity : ComponentActivity() {
                 Scaffold(topBar = { Text("Resonance · 共鸣", modifier = Modifier.padding(20.dp), style = MaterialTheme.typography.headlineSmall) }) { inner ->
                     Column(Modifier.padding(inner).padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                         Text("当前歌曲：$title")
-                        Text("连续跳过：$skips / 4")
+                        Text("连续快速跳过：$skips / 4")
+                        Text("本地历史：快速跳过 $fast · 中途切歌 $partial · 基本听完 $completed")
+                        Text("判断规则：15 秒内快速跳过；未达 70% 为中途切歌；达到 70% 视为基本听完。")
                         Text("分析结果：$analysis")
                         Text("陌生歌曲探索：30%（曲库接口待验证）")
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
