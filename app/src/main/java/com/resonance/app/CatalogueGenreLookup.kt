@@ -25,7 +25,7 @@ class CatalogueGenreLookup(private val sources:CatalogueGenreSources=OnlineCatal
                 GenreLookupStatus.READY->30*day
                 GenreLookupStatus.UNAVAILABLE->7*day
                 else->15*60*1000L
-            },id,status)
+            },id,status,sourceLabels=if(labels.isEmpty())emptyMap() else mapOf(source to labels),metadataKey=CatalogueCodec.identity(song))
         fun retry(reason:String)=result(emptySet(),"pending",reason,GenreLookupStatus.RETRY)
         fun normalized(labels:Set<String>)=labels.map(CatalogueCodec::normalizeGenre).filter(String::isNotBlank).toSet()
         var qqFailed=false
@@ -44,5 +44,24 @@ class CatalogueGenreLookup(private val sources:CatalogueGenreSources=OnlineCatal
         if(labels.isNotEmpty() && MusicBrainzJson.validId(extra.recordingId))return result(labels,"musicbrainz-recording",extra.reason,GenreLookupStatus.READY,extra.recordingId)
         return if(qqFailed)retry("QQ 读取失败，补充来源也无可靠曲风")
             else result(emptySet(),"supplement-unavailable",extra.reason,GenreLookupStatus.UNAVAILABLE)
+    }
+}
+
+object GenreEnrichment {
+    fun merge(previous:CatalogueGenre,song:QqCatalogueTrack,extra:SupplementaryGenres?,now:Long,failed:Boolean=false):CatalogueGenre {
+        val signature=CatalogueCodec.identity(song)
+        val old=if(previous.metadataKey.isNotBlank() && previous.metadataKey!=signature)
+            previous.copy(labels=previous.providers()["qq-song-detail"].orEmpty(),source="qq-song-detail",sourceLabels=emptyMap(),recordingId="") else previous
+        val labels=extra?.labels.orEmpty().map(CatalogueCodec::normalizeGenre).filter(String::isNotBlank).toSet()
+        if(!failed && labels.isNotEmpty() && MusicBrainzJson.validId(extra?.recordingId.orEmpty())) {
+            val sources=old.providers()+mapOf("musicbrainz-recording" to labels)
+            val union=sources.values.flatten().toSet()
+            return old.copy(labels=union,source=sources.keys.sorted().joinToString("+"),sourceLabels=sources,
+                recordingId=extra!!.recordingId,status=GenreLookupStatus.READY,enrichmentState="DONE",enrichRetryAt=now+30*24*60*60*1000L,
+                enrichmentNote=if(union.size>old.labels.size)"已补充 ${union.size-old.labels.size} 个不同标签" else "补充曲库未增加不同标签",metadataKey=signature)
+        }
+        return old.copy(enrichmentState=if(failed)"RETRY" else "UNAVAILABLE",enrichRetryAt=now+(if(failed)15*60*1000L else 7*24*60*60*1000L),
+            enrichmentNote=if(failed)"补充来源暂不可用，可稍后重试" else extra?.reason?:"补充来源暂无更细标签",metadataKey=signature,
+            status=if(old.labels.isNotEmpty())GenreLookupStatus.READY else if(failed)GenreLookupStatus.RETRY else GenreLookupStatus.UNAVAILABLE)
     }
 }

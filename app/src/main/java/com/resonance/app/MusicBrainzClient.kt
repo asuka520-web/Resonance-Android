@@ -92,7 +92,7 @@ object MusicBrainzClient {
             connection.connectTimeout = 12_000
             connection.readTimeout = 12_000
             connection.instanceFollowRedirects = false
-            connection.setRequestProperty("User-Agent", "Resonance/0.12.0 (https://github.com/asuka520-web/Resonance-Android)")
+            connection.setRequestProperty("User-Agent", "Resonance/0.13.0 (https://github.com/asuka520-web/Resonance-Android)")
             connection.setRequestProperty("Accept", "application/json")
             if (connection.responseCode != 200) throw IOException("曲库服务返回 ${connection.responseCode}，请稍后再试")
             return connection.inputStream.use { stream ->

@@ -9,8 +9,42 @@ import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URLEncoder
 
-/** Experimental, read-only QQ web protocol adapter. Cookies are supplied in memory, never persisted here. */
+/** Isolated QQ web protocol adapter. Cookies are supplied in memory, never persisted here. */
 object QqAccountClient {
+    fun favoriteGateway(session:QqAccountSession):QqFavoriteGateway=object:QqFavoriteGateway {
+        override suspend fun read(mid:String):Boolean=withContext(Dispatchers.IO) {
+            require(mid.matches(Regex("[A-Za-z0-9]{1,80}")))
+            val body=QqFavoriteProtocol.envelope(session,"music.musicasset.SongFavRead","IsSongFanByMid",JSONObject().put("v_songMid",JSONArray(listOf(mid))))
+            QqFavoriteProtocol.status(request("https://u.y.qq.com/cgi-bin/musicu.fcg",session,body),mid)
+        }
+        override suspend fun identity(song:QqCatalogueTrack):Pair<Long,Int> = withContext(Dispatchers.IO) {
+            val body=QqFavoriteProtocol.envelope(session,"music.pf_song_detail_svr","get_song_detail_yqq",JSONObject().put("song_mid",song.mid))
+            QqFavoriteProtocol.identity(request("https://u.y.qq.com/cgi-bin/musicu.fcg",session,body),song)
+        }
+        override suspend fun write(id:Long,type:Int,liked:Boolean)=withContext(Dispatchers.IO) {
+            if(session.playbackKey.isBlank())throw QqConnectionException("请先更新 QQ 音乐授权。")
+            val body=QqFavoriteProtocol.envelope(session,"music.musicasset.PlaylistDetailWrite",if(liked)"AddSonglist" else "DelSonglist",QqFavoriteProtocol.writeParameters(id,type)).toString()
+            val iv=ByteArray(12).also {java.security.SecureRandom().nextBytes(it)}
+            val url="https://u6.y.qq.com/cgi-bin/musics.fcg?encoding=ag-1&sign=${QqFavoriteProtocol.sign(body)}&_=${System.currentTimeMillis()}"
+            val connection=URI(url).toURL().openConnection() as HttpURLConnection
+            try {
+                connection.requestMethod="POST";connection.instanceFollowRedirects=false;connection.doOutput=true
+                connection.connectTimeout=12000;connection.readTimeout=12000
+                connection.setRequestProperty("Cookie",session.cookieHeader);connection.setRequestProperty("Referer","https://y.qq.com/")
+                connection.setRequestProperty("User-Agent",QqAccountProtocol.WEB_USER_AGENT)
+                connection.setRequestProperty("Content-Type","text/plain");connection.setRequestProperty("Accept","application/octet-stream")
+                connection.outputStream.use {it.write(QqFavoriteProtocol.encrypt(body,iv).toByteArray(Charsets.US_ASCII))}
+                if(connection.responseCode!=200)throw QqConnectionException("QQ 收藏请求未完成（HTTP ${connection.responseCode}），请刷新状态。")
+                val bytes=connection.inputStream.use {input ->
+                    val output=ByteArrayOutputStream();val buffer=ByteArray(8192)
+                    while(true){val n=input.read(buffer);if(n<0)break;if(output.size()+n>2_097_152)throw QqConnectionException("QQ 收藏响应过大。");output.write(buffer,0,n)}
+                    output.toByteArray()
+                }
+                QqFavoriteProtocol.data(QqFavoriteProtocol.decode(bytes),true)
+                Unit
+            } finally {connection.disconnect()}
+        }
+    }
     private fun encoded(value: String) = URLEncoder.encode(value, "UTF-8")
     suspend fun playlists(session: QqAccountSession): List<QqCataloguePlaylist> = withContext(Dispatchers.IO) {
         val id = encoded(session.userId)

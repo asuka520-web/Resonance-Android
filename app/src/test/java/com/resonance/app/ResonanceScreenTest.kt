@@ -173,7 +173,7 @@ class ResonanceScreenTest {
         compose.onNodeWithText("底下的操作").performTouchInput {click()}
         assertEquals(1,clicks)
         capture("direction-hint-test-data")
-        compose.mainClock.advanceTimeBy(3500)
+        compose.mainClock.advanceTimeBy(4500)
         compose.onNodeWithText("已换个方向 · 爵士").assertDoesNotExist()
     }
     @Test fun miniPlayerExposesPreviousAndAllModesCanBeSelectedInThePlayer() {
@@ -201,5 +201,50 @@ class ResonanceScreenTest {
         compose.onNodeWithText("应用并推荐").performScrollTo().performClick()
         assertEquals(setOf("jazz"),selected.wanted)
         assertEquals(setOf("rock"),selected.excluded)
+    }
+    @Test fun tagScoreSheetListsAllKnownLabelsIncludingZeroWithoutCreatingIntent() {
+        val song=QqCatalogueTrack("score","score","分数测试歌","歌手","专辑",200000)
+        val other=song.copy(mid="zero",mediaMid="zero",name="无反馈歌")
+        show(LibraryState(accountScope="test",favorites=listOf(song,other),genres=mapOf(
+            "score" to CatalogueGenre("score",setOf("pop","soul"),"qq-song-detail","",0,999),
+            "zero" to CatalogueGenre("zero",setOf("jazz"),"qq-song-detail","",0,999)),listening=listOf(ListeningSignal("qq:score","fast"))))
+        compose.onNodeWithText("调整这次选歌").performScrollTo().performClick()
+        compose.onNodeWithText("标签分数").performClick()
+        compose.onAllNodesWithText("爵士").onLast().assertIsDisplayed()
+        compose.onNodeWithText("0 次记录").assertIsDisplayed()
+        compose.onAllNodesWithText("-1.5 / -1.5 / -1.5").assertCountEquals(2)
+        capture("genre-scores-test-data")
+    }
+    @Test fun songDetailsFavoriteUsesServerStateAndRequestsExplicitToggle() {
+        val song=QqCatalogueTrack("heart","heart","收藏测试歌","歌手","专辑",200000)
+        var toggled="";var refreshed=""
+        compose.setContent {ResonanceScreen(LibraryState(accountScope="test",discoveries=listOf(song),favoriteStates=mapOf("heart" to true)),PlayerStatus(mid="heart"),
+            {},{},{},{},{},{},{},{},{},{},{},onFavorite={toggled=it},onRefreshFavorite={refreshed=it})}
+        compose.onAllNodesWithText("收藏测试歌").onLast().performClick()
+        compose.onNodeWithText("已喜欢 · 取消收藏").performClick()
+        assertEquals("heart",toggled);assertEquals("heart",refreshed)
+    }
+    @Test fun directionHistoryExposesConfirmedTargetAndUnconfirmedAttempt() {
+        val rows=listOf(DirectionSwitch(1,0,"a","b","真实目标歌","GENRE","避开流行",state="PLAYING",detail="已核对目标歌曲身份及连续播放进度。",scores=mapOf("pop" to -12.0)),
+            DirectionSwitch(2,1000,"c","d","加载失败歌","BATCH","标签不足",state="FAILED",detail="目标音源未能播放。"))
+        show(LibraryState(directionHistory=rows))
+        compose.onNodeWithText("我的",useUnmergedTree=true).performClick()
+        compose.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("最近换向记录"))
+        compose.onNodeWithText("最近换向记录").performClick()
+        compose.onNodeWithText("加载失败歌").assertIsDisplayed()
+        compose.onAllNodes(hasScrollAction()).onLast().performScrollToNode(hasText("真实目标歌"))
+        compose.onNodeWithText("真实目标歌").assertIsDisplayed()
+        compose.onNodeWithText("已确认播放 · 换曲风").assertExists()
+        capture("direction-history-test-data")
+    }
+    @Test fun selectedPlaybackScopeCanChangeWithoutChangingCurrentTrack() {
+        val song=QqCatalogueTrack("range","range","范围测试歌","歌手","专辑",200000)
+        var selected=""
+        compose.setContent {ResonanceScreen(LibraryState(accountScope="test",favorites=listOf(song)),PlayerStatus(mid="range"),
+            {},{},{},{},{},{},{},{},{},{},{},onPlaybackRange={selected=it})}
+        compose.onAllNodesWithText("范围测试歌").onLast().performClick()
+        compose.onNodeWithText("仅收藏").performScrollTo().performClick()
+        assertEquals("FAVORITES",selected)
+        capture("player-range-test-data")
     }
 }

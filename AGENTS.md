@@ -60,6 +60,20 @@ inference path on synthetic input; it does not validate Chinese-song accuracy,
 phone performance or create verified catalogue tags. Do not bundle model weights
 or its research-only dependencies with the Android or desktop validator releases.
 
+## v0.13.0 user-requested work
+
+The user authorized hearts syncing QQ “我喜欢”, broader shuffle/loop scope and
+surprise continuation, supplementing existing single-tag songs, exact playback
+evidence and all-label score display. This supersedes the missing-only restriction
+for supplementary queries: already positive songs may request strictly matched
+recording genres, preserving QQ tags, provenance and old caches. Never invent tags.
+Only explicit favourite actions may write to QQ; require fresh identity and server
+read-back. Scope shuffle is native Media3 over selected cached catalogue metadata,
+not QQ's private recommendation algorithm. Sparse four-skip evidence may replace a
+batch, clearly labelled BATCH, never verified genre change. All tag scores use the
+same feedback function as ranking; history stores at most 20 direction attempts per
+account and never equates a request with audible playback. See docs/FEEDBACK_QUEUE_TEST.md.
+
 ## Before editing
 - Read `README.md` and `docs/LOCAL_DEVELOPMENT.md`.
 - Inspect the current implementation before changing it. Do not assume old chat summaries describe the current source.

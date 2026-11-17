@@ -16,6 +16,22 @@ import org.robolectric.annotation.Config
 @Config(sdk=[35])
 @androidx.annotation.OptIn(UnstableApi::class)
 class PlaybackModesTest {
+    @Test fun fullCatalogueShuffleVisitsEveryTrackBeforeRepeatingAndReturnsToPrevious() {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        val player=ExoPlayer.Builder(context).build()
+        try {
+            val songs=(0 until 278).map {QqCatalogueTrack("s$it","s$it","歌曲$it","歌手","专辑",200000)}
+            val pool=PlaybackQueuePolicy.pool(LibraryState(favorites=songs),PlaybackRange.LIBRARY,listOf("s0"),"s0")
+            player.setMediaItems(pool.map {MediaItem.Builder().setMediaId(it.mid).setUri("asset:///${it.mid}.mp3").build()},0,0)
+            player.repeatMode=Player.REPEAT_MODE_ALL;player.shuffleModeEnabled=true
+            val seen=mutableSetOf(player.currentMediaItem!!.mediaId)
+            repeat(277){player.seekToNextMediaItem();assertTrue(seen.add(player.currentMediaItem!!.mediaId))}
+            assertEquals(songs.map {it.mid}.toSet(),seen)
+            val previous=player.currentMediaItem!!.mediaId
+            player.seekToNextMediaItem();assertEquals("s0",player.currentMediaItem!!.mediaId)
+            player.seekToPreviousMediaItem();assertEquals(previous,player.currentMediaItem!!.mediaId)
+        }finally {player.release()}
+    }
     @Test fun manualPreviousAndNextWorkDuringSingleRepeatAndShuffleUsesTheCurrentQueue() {
         val context=ApplicationProvider.getApplicationContext<Context>()
         val player=ExoPlayer.Builder(context).build()

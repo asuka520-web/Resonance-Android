@@ -11,11 +11,25 @@ enum class GenreLookupStatus { READY, WAITING, RETRY, UNAVAILABLE }
 data class CatalogueGenre(val mid: String, val labels: Set<String>, val source: String, val evidence: String,
                           val updatedAt: Long, val retryAt: Long, val recordingId: String = "",
                           val status: GenreLookupStatus = if (labels.isNotEmpty()) GenreLookupStatus.READY
-                          else if (source == "pending") GenreLookupStatus.RETRY else GenreLookupStatus.UNAVAILABLE)
+                          else if (source == "pending") GenreLookupStatus.RETRY else GenreLookupStatus.UNAVAILABLE,
+                          val sourceLabels:Map<String,Set<String>> = emptyMap(),val enrichmentState:String="",
+                          val enrichRetryAt:Long=0,val enrichmentNote:String="",val metadataKey:String="") {
+    fun providers()=if(sourceLabels.isNotEmpty())sourceLabels else if(labels.isNotEmpty())mapOf(source to labels) else emptyMap()
+}
 
 object GenreLookupPolicy {
-    fun preserveKnown(previous:CatalogueGenre?,fresh:CatalogueGenre):CatalogueGenre =
-        if(previous?.mid==fresh.mid && previous.labels.isNotEmpty() && fresh.labels.isEmpty())previous.copy(retryAt=fresh.retryAt) else fresh
+    fun preserveKnown(previous:CatalogueGenre?,fresh:CatalogueGenre):CatalogueGenre {
+        if(previous?.mid!=fresh.mid)return fresh
+        if(previous.metadataKey.isNotBlank() && fresh.metadataKey.isNotBlank() && previous.metadataKey!=fresh.metadataKey)return fresh
+        if(previous.labels.isNotEmpty() && fresh.labels.isEmpty())return previous.copy(retryAt=fresh.retryAt)
+        if(previous.labels.isNotEmpty() && fresh.labels.isNotEmpty()) {
+            val sources=previous.providers()+fresh.providers()
+            return fresh.copy(labels=sources.values.flatten().toSet(),source=sources.keys.sorted().joinToString("+"),sourceLabels=sources,
+                recordingId=fresh.recordingId.ifBlank {previous.recordingId},enrichmentState=previous.enrichmentState,
+                enrichRetryAt=previous.enrichRetryAt,enrichmentNote=previous.enrichmentNote)
+        }
+        return fresh
+    }
     fun status(genre: CatalogueGenre?): GenreLookupStatus = when {
         genre == null -> GenreLookupStatus.WAITING
         genre.labels.isNotEmpty() -> GenreLookupStatus.READY
@@ -45,19 +59,28 @@ object CatalogueCodec {
     fun genres(value: CatalogueGenre): String = JSONObject().put("mid", value.mid)
         .put("labels", JSONArray(value.labels.sorted())).put("source", value.source).put("evidence", value.evidence)
         .put("updatedAt", value.updatedAt).put("retryAt", value.retryAt).put("recordingId", value.recordingId)
-        .put("status", value.status.name).toString()
+        .put("status", value.status.name).put("sourceLabels",JSONObject(value.sourceLabels.mapValues {JSONArray(it.value.sorted())}))
+        .put("enrichmentState",value.enrichmentState).put("enrichRetryAt",value.enrichRetryAt)
+        .put("enrichmentNote",value.enrichmentNote).put("metadataKey",value.metadataKey).toString()
     fun genres(raw: String?): CatalogueGenre? = try {
         val obj = JSONObject(raw ?: "")
         val rows = obj.getJSONArray("labels")
         val legacy = CatalogueGenre(obj.getString("mid"), (0 until rows.length()).map { rows.getString(it) }.toSet(),
             obj.getString("source"), obj.getString("evidence"), obj.getLong("updatedAt"), obj.getLong("retryAt"), obj.optString("recordingId"))
-        legacy.copy(status = runCatching { GenreLookupStatus.valueOf(obj.getString("status")) }.getOrDefault(legacy.status))
+        val providers=obj.optJSONObject("sourceLabels")
+        val sourceLabels=providers?.keys()?.asSequence()?.associateWith {key ->
+            val values=providers.optJSONArray(key)?:JSONArray();(0 until values.length()).map {values.getString(it)}.toSet()}.orEmpty()
+        legacy.copy(status = runCatching { GenreLookupStatus.valueOf(obj.getString("status")) }.getOrDefault(legacy.status),
+            sourceLabels=sourceLabels,enrichmentState=obj.optString("enrichmentState"),enrichRetryAt=obj.optLong("enrichRetryAt"),
+            enrichmentNote=obj.optString("enrichmentNote"),metadataKey=obj.optString("metadataKey"))
     } catch (_: Exception) { null }
     fun normalizeGenre(value: String): String = when (val key = value.trim().lowercase(Locale.ROOT)) {
         "hip-hop", "hiphop" -> "hip hop"
         "rhythm and blues", "rnb" -> "r&b"
         else -> key
     }
+    fun identity(song:QqCatalogueTrack)=MessageDigest.getInstance("SHA-256").digest(
+        JSONArray(listOf(song.name,song.artist,song.album,song.durationMs)).toString().toByteArray()).joinToString(""){"%02x".format(it.toInt() and 255)}
 }
 
 /** Account-scoped favourites and history; no cookies or playback URLs ever enter this store. */
@@ -75,6 +98,8 @@ object CatalogueStore {
         editor.apply()
     }
     fun syncedAt(context: Context, scope: String) = library(context, scope).getLong("syncedAt", 0)
+    fun directionHistory(context:Context,scope:String)=DirectionSwitchCodec.decode(library(context,scope).getString("directionHistory",null))
+    fun saveDirectionHistory(context:Context,scope:String,rows:List<DirectionSwitch>) {library(context,scope).edit().putString("directionHistory",DirectionSwitchCodec.encode(rows)).apply()}
     fun discovery(context: Context, scope: String) = DiscoveryPool.decode(library(context, scope).getString("discovery", null))
     fun saveDiscovery(context: Context, scope: String, pool: DiscoveryPool) {
         library(context, scope).edit().putString("discovery", pool.encode()).apply()

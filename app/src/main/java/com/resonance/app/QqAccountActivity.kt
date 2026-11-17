@@ -83,6 +83,7 @@ class QqAccountActivity : ComponentActivity() {
             active.shuffleModeEnabled=mode==PlaybackMode.SHUFFLE
             active.repeatMode=when(mode){PlaybackMode.SINGLE->Player.REPEAT_MODE_ONE;PlaybackMode.LOOP,PlaybackMode.SHUFFLE->Player.REPEAT_MODE_ALL;else->Player.REPEAT_MODE_OFF}
         }
+        PlaybackStateBus.publish(PlaybackStateBus.value.copy(playbackMode=mode.name))
     }
     @SuppressLint("SetJavaScriptEnabled")
     @OptIn(ExperimentalMaterial3Api::class)
@@ -133,7 +134,15 @@ class QqAccountActivity : ComponentActivity() {
                 }, onLegacy = { startActivity(Intent(this@QqAccountActivity, MainActivity::class.java)) },
                 onPlaylists = { QqLibrary.loadPlaylists() }, onPlaylist = { QqLibrary.openPlaylist(it) },
                 onPlayRecommendation = ::playRecommendation, onPlayDiscovery = ::playBatch,
-                onSurprise={if(QqLibrary.surprise(PlaybackStateBus.value.mid).picks.isNotEmpty())playRecommendation(null)},onPlaybackMode=::setPlaybackMode)
+                onSurprise={QqLibrary.surprise(PlaybackStateBus.value.mid).picks.firstOrNull()?.let {pick ->
+                    QqLibrary.track(pick.track.mediaId.removePrefix("qq:"))?.let {seed->
+                        playBatch(PlaybackQueuePolicy.surprise(seed,QqLibrary.state).map {it.mid},seed.mid)
+                    }}},onPlaybackMode=::setPlaybackMode,onFavorite=QqLibrary::toggleFavorite,onRefreshFavorite=QqLibrary::refreshFavorite,
+                onEnrich={QqLibrary.enrichGenres(it)},onPlaybackRange={name ->
+                    val range=PlaybackRange.parse(name)
+                    getSharedPreferences("resonance_settings",MODE_PRIVATE).edit().putString("qq_playback_range",range.name).apply()
+                    PlaybackStateBus.publish(PlaybackStateBus.value.copy(playbackRange=range.name))
+                })
             if (showLogin) ResonanceTheme {
                 ModalBottomSheet(onDismissRequest = { closeLogin() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
                     modifier = Modifier.fillMaxHeight(.96f)) {

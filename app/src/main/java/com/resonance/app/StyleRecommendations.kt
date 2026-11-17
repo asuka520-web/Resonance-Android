@@ -11,7 +11,7 @@ data class ListeningSignal(val mediaId: String, val category: String)
 data class StylePick(val track: StyleTrack, val reason: String, val unfamiliar: Boolean, val surprise:Boolean=false)
 data class StylePlan(
     val heading: String, val explanation: String, val picks: List<StylePick> = emptyList(),
-    val rejectedGenres: Set<String> = emptySet()
+    val rejectedGenres: Set<String> = emptySet(),val directionKind:String="GENRE"
 )
 
 /** Genre overlap is an explainable first stage, not acoustic or mood similarity. */
@@ -32,11 +32,12 @@ object StyleRecommendations {
             intent.accepts(it.genres) && it.recordingId != anchor.recordingId && (intent.wanted.isNotEmpty() || it.genres.intersect(anchor.genres).isNotEmpty() ||
                 (it.mediaId in relatedIds && (it.genres.isEmpty() || anchor.genres.isEmpty())))
         }
+        val scores=GenrePreferenceScores.calculate(tracks,events).associateBy {it.label}
         val ranked = candidates.sortedWith(compareByDescending<StyleTrack> {
             val overlap = it.genres.intersect(anchor.genres).size.toDouble()
             val union = it.genres.union(anchor.genres).size
             (if (union == 0) 0.0 else 10 * overlap / union) +
-                (if (it.mediaId in relatedIds) 2.0 else 0.0) + preference(it, tracks, events)
+                (if (it.mediaId in relatedIds) 2.0 else 0.0) + GenrePreferenceScores.preference(it,events,scores)
         }.thenBy { it.mediaId })
         val heading = if(intent.wanted.isNotEmpty())"按你的选歌条件" else if (anchor.genres.isEmpty()) "与「${anchor.name}」相关的歌" else "接着「${anchor.name}」听"
         val explanation = if(intent.active)"依据全部已知标签检查本次条件，排除项优先；未知曲风不用于证明满足条件。" else if (anchor.genres.isEmpty()) "当前歌曲曲风未知，使用 QQ 返回的直接相关歌曲；没有推断曲风或情绪。"
@@ -62,9 +63,10 @@ object StyleRecommendations {
             return StylePlan("四次快跳：风格混杂", "这四首没有足够共同曲风，无法据此认定你不想听哪种风格；可改用当前歌曲的同曲风推荐。")
         val excluded = rejected.map { it.mediaId }.toSet() + currentId
         val rejectedRecordings = rejectedTracks.filterNotNull().map { it.recordingId }.toSet()
+        val scores=GenrePreferenceScores.calculate(tracks,events).associateBy {it.label}
         val ranked = eligible(tracks, events, excluded).filter {
             intent.accepts(it.genres) && it.genres.intersect(common).isEmpty() && it.recordingId !in rejectedRecordings
-        }.sortedWith(compareByDescending<StyleTrack> { preference(it, tracks, events) }.thenBy { it.mediaId })
+        }.sortedWith(compareByDescending<StyleTrack> { GenrePreferenceScores.preference(it,events,scores) }.thenBy { it.mediaId })
         return plan("四次快跳：尝试其他曲风", "本次暂时避开：${common.joinToString()}（四首中至少三首共有，优先选择在曲库中更有区分度的标签）。不永久屏蔽这些曲风。",
             ranked, events, common, familiarIds) { "候选曲风：${it.genres.joinToString()}；与本次避开标签无交集" }
     }
@@ -73,15 +75,6 @@ object StyleRecommendations {
         val recentRejected = events.takeLast(10).filter { it.category != "completed" }.map { it.mediaId }.toSet()
         return tracks.filter { (it.genres.isNotEmpty() || it.mediaId in relatedIds) && it.mediaId !in excluded && it.mediaId !in recentRejected }
             .distinctBy { it.recordingId }
-    }
-
-    private fun preference(track: StyleTrack, tracks: List<StyleTrack>, events: List<ListeningSignal>): Double {
-        val byId = tracks.associateBy { it.mediaId }
-        val longLikes = events.takeLast(500).filter { it.category == "completed" }
-        val recentLikes = events.takeLast(20).filter { it.category == "completed" }
-        fun matching(event: ListeningSignal) = byId[event.mediaId]?.genres?.intersect(track.genres)?.isNotEmpty() == true
-        val repeatPenalty = if (events.takeLast(3).any { it.mediaId == track.mediaId }) 3.0 else 0.0
-        return longLikes.count(::matching) * 0.1 + recentLikes.count(::matching) * 0.5 - repeatPenalty
     }
 
     private fun plan(heading: String, explanation: String, ranked: List<StyleTrack>, events: List<ListeningSignal>,

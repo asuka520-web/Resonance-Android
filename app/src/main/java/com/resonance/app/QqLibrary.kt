@@ -12,7 +12,10 @@ data class LibraryState(
     val openedPlaylist: QqCataloguePlaylist? = null, val playlistTracks: List<QqCatalogueTrack> = emptyList(),
     val discovering: Boolean = false, val activeGenreMid: String = "", val discoveryMessage: String = "",
     val discoverySources: Map<String,List<String>> = emptyMap(), val listening: List<ListeningSignal> = emptyList(),
-    val retryScheduled: Boolean = false,val intent:ListeningIntent=ListeningIntent()
+    val retryScheduled: Boolean = false,val intent:ListeningIntent=ListeningIntent(),
+    val favoriteStates:Map<String,Boolean> = emptyMap(),val favoriteBusy:Set<String> = emptySet(),val favoriteUncertain:Set<String> = emptySet(),
+    val feedback:DirectionNotice?=null,val directionHistory:List<DirectionSwitch> = emptyList(),
+    val enriching:Boolean=false,val enrichedProgress:Int=0,val enrichmentTotal:Int=0
 ) {
     val allTracks get() = (favorites + discoveries).distinctBy { it.mid }
     val taggedCount get() = favorites.count { genres[it.mid]?.labels?.isNotEmpty() == true }
@@ -27,6 +30,8 @@ object QqLibrary {
     private var syncJob: Job? = null
     private var genreJob: Job? = null
     private var discoveryJob: Job? = null
+    private var enrichmentJob:Job?=null
+    private var automaticEnriched=false
     private val genreLookup=CatalogueGenreLookup()
     private var discoveryPool = DiscoveryPool()
     private var activeDiscoveryMid = ""
@@ -38,6 +43,9 @@ object QqLibrary {
     private val priority = linkedSetOf<String>()
     private var recommendationAnchor: String? = null
     private var surpriseId:String?=null
+    private val favoriteOverrides=mutableMapOf<String,Pair<QqCatalogueTrack,Boolean>>()
+    private val favoriteOverrideTimes=mutableMapOf<String,Long>()
+    private val favoriteJobs=mutableMapOf<String,Job>()
     private var generation = 0L
     @Volatile private var value = LibraryState()
     private val listeners = mutableSetOf<(LibraryState) -> Unit>()
@@ -46,6 +54,66 @@ object QqLibrary {
     fun unsubscribe(listener: (LibraryState) -> Unit) { listeners.remove(listener) }
     private fun update(next: LibraryState) { value = next.copy(revision = value.revision + 1); listeners.toList().forEach { it(value) } }
     fun notice(message: String) = update(value.copy(message = message))
+    fun feedback(message:String){val now=android.os.SystemClock.elapsedRealtime();update(value.copy(message=message,feedback=DirectionNotice(System.nanoTime(),now,emptySet(),"INFO",message)))}
+    fun beginDirection(from:String,target:String,plan:StylePlan):Long {
+        val context=app?:return 0
+        val id=System.nanoTime()
+        val row=DirectionSwitch(id,System.currentTimeMillis(),from,target,track(target)?.name.orEmpty(),plan.directionKind,plan.explanation,
+            scores=GenrePreferenceScores.calculate(styleTracks(),signals()).associate {it.label to it.combined})
+        val rows=(value.directionHistory+row).takeLast(20)
+        CatalogueStore.saveDirectionHistory(context,value.accountScope,rows);update(value.copy(directionHistory=rows))
+        return id
+    }
+    fun updateDirection(id:Long,state:String,detail:String) {
+        val context=app?:return
+        if(value.directionHistory.none {it.id==id})return
+        val rows=value.directionHistory.map {if(it.id==id)it.copy(state=state,detail=detail) else it}
+        CatalogueStore.saveDirectionHistory(context,value.accountScope,rows);update(value.copy(directionHistory=rows))
+    }
+    private fun applyFavoriteOverrides(songs:List<QqCatalogueTrack>):List<QqCatalogueTrack> {
+        favoriteOverrideTimes.filterValues {System.currentTimeMillis()-it>60000}.keys.toList().forEach {favoriteOverrides.remove(it);favoriteOverrideTimes.remove(it)}
+        var result=songs
+        favoriteOverrides.values.forEach {(song,liked)->result=if(liked)(result+song).distinctBy {it.mid} else result.filter {it.mid!=song.mid}}
+        return result
+    }
+    private fun applyFavorite(song:QqCatalogueTrack,liked:Boolean) {
+        val context=app?:return
+        favoriteOverrides[song.mid]=song to liked
+        favoriteOverrideTimes[song.mid]=System.currentTimeMillis()
+        val songs=applyFavoriteOverrides(value.favorites)
+        CatalogueStore.save(context,value.accountScope,songs,false)
+        update(value.copy(favorites=songs,discoveries=if(liked)value.discoveries else (value.discoveries+song).distinctBy {it.mid},favoriteStates=value.favoriteStates+(song.mid to liked),favoriteUncertain=value.favoriteUncertain-song.mid))
+        refreshRecommendation()
+    }
+    fun refreshFavorite(mid:String)=favoriteAction(mid,false)
+    fun toggleFavorite(mid:String)=favoriteAction(mid,true)
+    private fun favoriteAction(mid:String,toggle:Boolean) {
+        val account=session?:run{feedback("请先连接 QQ 音乐账号。");return}
+        val song=track(mid)?:return
+        if(favoriteJobs[mid]?.isActive==true)return
+        val token=generation
+        val desired=!(value.favoriteStates[mid]?:value.favorites.any {it.mid==mid})
+        val refreshOnly=!toggle || mid in value.favoriteUncertain
+        val current={token==generation && session?.cookieHeader==account.cookieHeader && QqSessionManager.active?.userId==account.userId}
+        favoriteJobs[mid]=scope.launch {
+            update(value.copy(favoriteBusy=value.favoriteBusy+mid))
+            try {
+                val gateway=QqAccountClient.favoriteGateway(account)
+                if(refreshOnly){val actual=gateway.read(mid);if(current()){applyFavorite(song,actual);if(toggle)feedback("QQ 收藏状态已刷新。")}}
+                else {
+                    val result=FavoriteOperation.set(song,desired,gateway,current)
+                    if(current()){
+                        result.actual?.let {applyFavorite(song,it)}
+                        if(!result.confirmed)update(value.copy(favoriteUncertain=value.favoriteUncertain+mid))
+                        feedback(result.message)
+                    }
+                }
+            }catch(e:CancellationException){throw e}
+            catch(_:Exception){if(current())feedback("QQ 收藏暂未完成，请更新授权或稍后刷新；未假报成功。")} finally {
+                if(token==generation)update(value.copy(favoriteBusy=value.favoriteBusy-mid))
+            }
+        }
+    }
 
     fun activate(context: Context, account: QqAccountSession?) {
         app = context.applicationContext
@@ -53,7 +121,8 @@ object QqLibrary {
         val key = account?.let { CatalogueStore.scope(it.userId) }.orEmpty()
         if (key != value.accountScope) {
             generation++
-            syncJob?.cancel(); genreJob?.cancel(); discoveryJob?.cancel()
+            syncJob?.cancel(); genreJob?.cancel(); discoveryJob?.cancel();enrichmentJob?.cancel();automaticEnriched=false
+            favoriteJobs.values.forEach {it.cancel()};favoriteJobs.clear();favoriteOverrides.clear();favoriteOverrideTimes.clear()
             pendingSeeds.clear(); discoveryRetryAt.clear(); automaticSeeds.clear(); forcedGenres.clear(); supplementOnly.clear(); activeDiscoveryMid = ""
             priority.clear(); recommendationAnchor = null;surpriseId=null
             val saved = if (key.isBlank()) emptyList() else CatalogueStore.songs(context, key)
@@ -64,12 +133,14 @@ object QqLibrary {
                 preferences.getStringSet("excluded",emptySet()).orEmpty().toSet(),preferences.getBoolean("all",false)).normalized()
             update(LibraryState(accountScope = key, favorites = saved, discoveries = discoveryPool.tracks, genres = genres,
                 intent=intent,
+                directionHistory=if(key.isBlank())emptyList() else CatalogueStore.directionHistory(context,key).map {
+                    if(it.state=="PREPARING")it.copy(state="UNCONFIRMED",detail="上次播放服务已中断，未确认目标播放。") else it},
                 discoverySources = discoveryPool.sources(), listening = if(key.isBlank())emptyList() else StyleRecommendations.signals(CatalogueStore.events(context,key)),
                 message = if (key.isBlank()) "连接 QQ 音乐，让收藏变成懂你的推荐。" else "QQ 音乐已连接，正在准备你的收藏。"))
         }
         if (account != null) {
             if (value.favorites.isEmpty() || System.currentTimeMillis() - CatalogueStore.syncedAt(context, key) > 6 * 60 * 60 * 1000L) syncFavorites()
-            else { analyze(); warmDiscovery() }
+            else { analyze(); warmDiscovery();enrichGenres(automatic=true) }
         }
     }
 
@@ -92,7 +163,7 @@ object QqLibrary {
                     if (token != generation) return@launch
                     val loaded = accumulator.tracks
                     val cachedGenres = loaded.mapNotNull { song -> CatalogueStore.genre(context, song.mid)?.let { song.mid to it } }.toMap()
-                    update(value.copy(favorites = loaded, genres = value.genres + cachedGenres,
+                    update(value.copy(favorites = applyFavoriteOverrides(loaded), genres = value.genres + cachedGenres,
                         message = "已同步 ${loaded.size}${page.total?.let { " / $it" }.orEmpty()} 首收藏"))
                     if (!page.hasMore) { complete = page.total == null || page.nextOffset >= page.total; break }
                     if (page.nextOffset <= offset) throw QqConnectionException("曲库分页未前进，已停止本轮同步。")
@@ -100,19 +171,19 @@ object QqLibrary {
                     delay(350)
                 }
                 if (token == generation) {
-                    val retained = if (complete) accumulator.tracks else (accumulator.tracks + previous).distinctBy { it.mid }
+                    val retained = applyFavoriteOverrides(if (complete) accumulator.tracks else (accumulator.tracks + previous).distinctBy { it.mid })
                     CatalogueStore.save(context, key, retained, complete)
                     update(value.copy(favorites = retained, message = if (complete) "收藏已同步，曲风资料自动补齐中。" else "已保存本轮收藏，部分收藏尚未读取。"))
                 }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 if (token == generation) {
-                    val retained = (accumulator.tracks + previous).distinctBy { it.mid }
+                    val retained = applyFavoriteOverrides((accumulator.tracks + previous).distinctBy { it.mid })
                     if (retained.isNotEmpty()) CatalogueStore.save(context, key, retained, false)
                     update(value.copy(favorites = retained, message = (e as? QqConnectionException)?.publicReason ?: "收藏同步暂未完成，已有资料已保留。"))
                 }
             } finally {
-                if (token == generation) { update(value.copy(syncing = false)); analyze(); warmDiscovery() }
+                if (token == generation) { update(value.copy(syncing = false)); analyze(); warmDiscovery();enrichGenres(automatic=true) }
             }
         }
     }
@@ -145,6 +216,41 @@ object QqLibrary {
     }
 
     fun closePlaylist() = update(value.copy(openedPlaylist = null, playlistTracks = emptyList()))
+    fun enrichGenres(mid:String?=null,automatic:Boolean=false) {
+        val context=app?:return
+        if(value.accountScope.isBlank() || enrichmentJob?.isActive==true)return
+        if(!context.getSharedPreferences("resonance_settings",Context.MODE_PRIVATE).getBoolean("catalogue_external_tags",true)) {
+            if(!automatic)feedback("请在“我的”开启在线补全。");return
+        }
+        if(automatic && automaticEnriched)return
+        val now=System.currentTimeMillis()
+        val eligible=if(mid!=null)listOfNotNull(track(mid)) else value.favorites.filter {value.genres[it.mid]?.labels?.size==1}
+        val candidates=eligible.filter {!automatic || (value.genres[it.mid]?.enrichRetryAt?:0)<=now}.let {if(automatic)it.take(20) else it}
+        if(candidates.isEmpty()){if(!automatic)feedback("暂无需要补查的单标签歌曲。");return}
+        if(automatic)automaticEnriched=true
+        val token=generation
+        enrichmentJob=scope.launch {
+            update(value.copy(enriching=true,enrichedProgress=0,enrichmentTotal=candidates.size))
+            var failures=0
+            try {
+                for(song in candidates) {
+                    if(token!=generation || !context.getSharedPreferences("resonance_settings",Context.MODE_PRIVATE).getBoolean("catalogue_external_tags",true))break
+                    var failed=false
+                    val extra=try {OnlineCatalogueGenreSources.supplementary(song)}catch(e:CancellationException){throw e}catch(_:Exception){failed=true;null}
+                    if(token!=generation)break
+                    if(track(song.mid)?.let(CatalogueCodec::identity)!=CatalogueCodec.identity(song))continue
+                    val old=value.genres[song.mid]?:CatalogueGenre(song.mid,emptySet(),"pending","",0,0)
+                    val result=GenreEnrichment.merge(old,song,extra,System.currentTimeMillis(),failed)
+                    CatalogueStore.saveGenre(context,result)
+                    update(value.copy(genres=value.genres+(song.mid to result),enrichedProgress=value.enrichedProgress+1))
+                    refreshRecommendation()
+                    failures=if(failed)failures+1 else 0
+                    if(failures>=3){feedback("补充来源连续不可用，已暂停；已有标签保留。");break}
+                    delay(1100)
+                }
+            }finally{if(token==generation)update(value.copy(enriching=false))}
+        }
+    }
 
     fun retryMissing(useSupplementOnly: Boolean = false) {
         val context = app ?: return
@@ -211,7 +317,7 @@ object QqLibrary {
                     }
                     delay(1100)
                 }
-            } finally { if (token == generation) { update(value.copy(analyzing = false, activeGenreMid = "", retryScheduled=false)); warmDiscovery() } }
+            } finally { if (token == generation) { update(value.copy(analyzing = false, activeGenreMid = "", retryScheduled=false)); warmDiscovery();enrichGenres(automatic=true) } }
         }
     }
 
@@ -236,7 +342,9 @@ object QqLibrary {
     }
     fun direction(mid: String): StylePlan {
         recommendationAnchor = null
-        val plan = StyleRecommendations.changeDirection("qq:$mid", styleTracks(), signals(), value.favorites.map { "qq:${it.mid}" }.toSet(),value.intent)
+        val favorites=value.favorites.map {"qq:${it.mid}"}.toSet()
+        val genrePlan = StyleRecommendations.changeDirection("qq:$mid", styleTracks(), signals(), favorites,value.intent)
+        val plan=DirectionFallback.plan(genrePlan,styleTracks(true).filter {value.intent.accepts(it.genres)},signals(),favorites,"qq:$mid")
         update(value.copy(recommendation = plan))
         return plan
     }

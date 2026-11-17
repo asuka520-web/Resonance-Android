@@ -3,6 +3,21 @@
 A local-first Android music assistant with QQ account integration, background
 playback, favourite-first genre enrichment and recommendations. Kotlin + Compose.
 
+## v0.13.0
+
+- Direction notices show the exact confirmed target song. Recent direction history
+  records target, result, reason and score snapshot; timeouts/errors/cancellations
+  never appear as playback success. Sparse tags can trigger an explicit new batch.
+- All tag scores are visible under Adjust selection → Tag scores and use the same
+  short/long-term feedback calculation as candidate ranking, including zero scores.
+- Shuffle/list loop can cover favourites + discoveries (default), favourites only,
+  or the current batch. Surprise songs have continuation instead of a one-song loop.
+- Explicit hearts add/remove QQ “我喜欢”, with fresh identity checks, one write
+  and mandatory server read-back. Real-account acceptance remains a phone check.
+- Single-tag songs can request strict supplementary recording genres as well;
+  retain QQ labels and per-source provenance. No guarantee of additional labels.
+- [Phone acceptance](docs/FEEDBACK_QUEUE_TEST.md).
+
 ## v0.12.0
 
 - Optional unknown-genre surprise slot (at most one per batch), with a manual
