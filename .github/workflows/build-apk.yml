@@ -4,7 +4,7 @@ on:
     branches: [main]
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -31,6 +31,14 @@ jobs:
         run: gradle --no-daemon :app:assembleDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: Resonance-v0.1-debug-apk
+          name: Resonance-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      - name: Publish direct-download APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Resonance-latest-debug.apk
+          gh release view latest-test >/dev/null 2>&1 || gh release create latest-test --title "Resonance 最新测试版" --notes "自动构建的测试 APK。注意：GitHub Actions 默认调试签名可能改变，覆盖安装如提示签名不匹配，请先备份数据，勿直接卸载。"
+          gh release upload latest-test Resonance-latest-debug.apk --clobber
