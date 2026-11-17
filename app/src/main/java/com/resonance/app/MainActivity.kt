@@ -72,7 +72,7 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Scaffold(topBar = {
                     Text(
-                        "Resonance · 共鸣 v0.7.0",
+                        "Resonance · 共鸣 v0.8.0",
                         style = MaterialTheme.typography.headlineSmall,
                         modifier = Modifier.padding(20.dp)
                     )
@@ -82,6 +82,10 @@ class MainActivity : ComponentActivity() {
                             .verticalScroll(rememberScrollState()).padding(20.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
+                        Button(onClick = { startActivity(Intent(context, QqAccountActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)) }) {
+                            Text("进入 QQ 账号播放器（接入验证）")
+                        }
                         Text("当前歌曲", style = MaterialTheme.typography.titleMedium)
                         Text(info?.name ?: snapshot.title, style = MaterialTheme.typography.titleLarge)
                         if (currentId.isNotBlank()) {
