@@ -21,6 +21,19 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Generate Gradle Wrapper for local development
+        shell: bash
+        run: |
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            gradle --no-daemon wrapper --gradle-version 8.9 --distribution-type bin
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add gradlew gradlew.bat gradle/wrapper/gradle-wrapper.jar gradle/wrapper/gradle-wrapper.properties
+            if ! git diff --cached --quiet; then
+              git commit -m "Add Gradle wrapper for local development"
+              git push origin HEAD:main || echo "::warning::Could not push wrapper files; they remain available in the workflow workspace."
+            fi
+          fi
       - name: Verify Android SDK
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
