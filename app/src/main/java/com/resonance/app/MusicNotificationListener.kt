@@ -32,7 +32,9 @@ data class MusicSnapshot(
     val title: String, val skips: Int, val analysis: String,
     val fast: Int = 0, val partial: Int = 0, val completed: Int = 0,
     val diagnostics: MetadataDiagnostics = MetadataDiagnostics(),
-    val historyRevision: Long = 0L
+    val historyRevision: Long = 0L,
+    val metadataRevision: Long = 0L,
+    val metadataStatus: String = "等待 QQ 音乐歌曲信息"
 )
 
 object MusicState {
@@ -50,6 +52,9 @@ object MusicState {
 class MusicNotificationListener : NotificationListenerService() {
     private val handler = Handler(Looper.getMainLooper())
     private val tracker = BehaviorTracker()
+    private val metadataResolver = QqMetadataResolver()
+    private var metadataRevision = 0L
+    private var metadataStatus = "等待 QQ 音乐歌曲信息"
     private var activeSessionToken: MediaSession.Token? = null
     private var diagnosticMediaId: String? = null
     private var historyRevision = 0L
@@ -87,6 +92,8 @@ class MusicNotificationListener : NotificationListenerService() {
     }
     private fun resetReading(reason: String) {
         tracker.suspendObservation(reason)
+        metadataResolver.reset()
+        metadataStatus = reason
         activeSessionToken = null
         diagnosticMediaId = null
         previousRawTitle = null
@@ -149,6 +156,14 @@ class MusicNotificationListener : NotificationListenerService() {
             titleChangedWithinId = rawTitleChanged,
             displayTitleChangedWithinId = displayTitleChanged
         )
+        val resolution = metadataResolver.observe(id, artist, album, now)
+        metadataStatus = resolution.status
+        resolution.invalidateMediaId?.let {
+            if (SongInfoStore.invalidateAutomatic(this, it)) metadataRevision++
+        }
+        resolution.song?.let {
+            if (SongInfoStore.saveAutomatic(this, it)) metadataRevision++
+        }
         tracker.observe(PlaybackObservation(id, position, duration, playing, now))?.let { event ->
             recordEvent(event.mediaId, event.playedMs, event.durationMs, event.category)
         }
@@ -179,6 +194,7 @@ class MusicNotificationListener : NotificationListenerService() {
                 "completed" -> completed++
             }
         }
-        MusicState.publish(MusicSnapshot(title, tracker.consecutiveFastSkips, tracker.notice, fast, partial, completed, diagnostics, historyRevision))
+        MusicState.publish(MusicSnapshot(title, tracker.consecutiveFastSkips, tracker.notice, fast, partial, completed,
+            diagnostics, historyRevision, metadataRevision, metadataStatus))
     }
 }

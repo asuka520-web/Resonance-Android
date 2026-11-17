@@ -37,6 +37,11 @@ notification-service lifecycle. See `docs/TESTING_STRATEGY.md`.
 1. QQ Music's `MediaMetadata.METADATA_KEY_TITLE` may contain the currently displayed lyric line. Never treat `TITLE` alone as song identity, never use title changes as track-change detection, and never automatically save it as a verified song name.
 2. Stable `METADATA_KEY_MEDIA_ID` is the current track identity signal. Do not regress to title-based detection.
 3. `DISPLAY_TITLE`, `ARTIST`, `ALBUM`, `DISPLAY_SUBTITLE`, and `DISPLAY_DESCRIPTION` are diagnostic candidate fields only until device tests prove their semantics. Keep provenance and user confirmation explicit.
+   On 2026-11-17 the user verified across multiple tracks that their QQ Music
+   supplies a stable `song name-artist` composite in ARTIST and album in ALBUM.
+   v0.6.2 may cache this narrowly parsed format after stable observations, under
+   `qq-session-artist` provenance in `resonance_auto_song_info`. Preserve manual
+   and legacy labels first; ambiguous or changing fields must not auto-commit.
 4. Do not integrate undocumented, unauthorized, brittle QQ Music endpoints or scrape private APIs. A lookup source must be documented, permitted, and tested before use.
 5. Never claim recommendation or automatic playback works until an actual supported catalogue/search/playback integration is implemented and tested.
 

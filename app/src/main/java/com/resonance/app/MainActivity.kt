@@ -32,6 +32,7 @@ class MainActivity : ComponentActivity() {
             var editedArtist by remember { mutableStateOf("") }
             var editedAlbum by remember { mutableStateOf("") }
             var savedRevision by remember { mutableIntStateOf(0) }
+            var editorTouched by remember { mutableStateOf(false) }
             var historyRevision by remember { mutableIntStateOf(0) }
             var showDiagnostics by remember { mutableStateOf(false) }
             var showProfile by remember { mutableStateOf(false) }
@@ -41,7 +42,7 @@ class MainActivity : ComponentActivity() {
             val currentId = diagnostics.mediaId.ifBlank {
                 if (snapshot.title.startsWith("媒体 ID：")) snapshot.title.removePrefix("媒体 ID：") else ""
             }
-            val info = remember(currentId, savedRevision) {
+            val info = remember(currentId, savedRevision, snapshot.metadataRevision) {
                 if (currentId.isBlank()) null else SongInfoStore.get(context, currentId)
             }
             val history = remember(historyRevision, snapshot.historyRevision, snapshot.fast, snapshot.partial, snapshot.completed) {
@@ -51,9 +52,17 @@ class MainActivity : ComponentActivity() {
             val longTerm = remember(history) { ListeningInsights.fromEvents(history, 500) }
 
             LaunchedEffect(currentId, savedRevision) {
+                editorTouched = false
                 editedName = info?.name.orEmpty()
                 editedArtist = info?.artist.orEmpty()
                 editedAlbum = info?.album.orEmpty()
+            }
+            LaunchedEffect(currentId, snapshot.metadataRevision) {
+                if (!editorTouched) {
+                    editedName = info?.name.orEmpty()
+                    editedArtist = info?.artist.orEmpty()
+                    editedAlbum = info?.album.orEmpty()
+                }
             }
             LaunchedEffect(automaticMode) { MusicState.autoMode = automaticMode }
             DisposableEffect(Unit) {
@@ -65,7 +74,7 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Scaffold(topBar = {
                     Text(
-                        "Resonance · 共鸣 v0.6.1",
+                        "Resonance · 共鸣 v0.6.2",
                         style = MaterialTheme.typography.headlineSmall,
                         modifier = Modifier.padding(20.dp)
                     )
@@ -80,24 +89,24 @@ class MainActivity : ComponentActivity() {
                         if (currentId.isNotBlank()) {
                             Text("稳定媒体 ID：" + currentId, style = MaterialTheme.typography.bodySmall)
                             if (info != null) {
-                                Text("已确认信息：" + info.name +
+                                Text((if (info.automatic) "QQ 音乐自动读取：" else "人工确认信息：") + info.name +
                                     (if (info.artist.isNotBlank()) " — " + info.artist else "") +
                                     (if (info.album.isNotBlank()) " · " + info.album else ""))
                             } else {
-                                Text("未有经过确认的歌名；不会使用可能是歌词的 TITLE 自动填充。")
+                                Text(snapshot.metadataStatus + "；不会使用可能是歌词的 TITLE 自动填充。")
                             }
                             OutlinedTextField(
-                                value = editedName, onValueChange = { editedName = it },
+                                value = editedName, onValueChange = { editedName = it; editorTouched = true },
                                 label = { Text("歌曲名称（请核实）") }, singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
                             OutlinedTextField(
-                                value = editedArtist, onValueChange = { editedArtist = it },
+                                value = editedArtist, onValueChange = { editedArtist = it; editorTouched = true },
                                 label = { Text("歌手（可选）") }, singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
                             OutlinedTextField(
-                                value = editedAlbum, onValueChange = { editedAlbum = it },
+                                value = editedAlbum, onValueChange = { editedAlbum = it; editorTouched = true },
                                 label = { Text("专辑（可选）") }, singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -121,7 +130,8 @@ class MainActivity : ComponentActivity() {
                             Text("MEDIA_ID：" + diagnostics.mediaId)
                             Text("TITLE（可能是动态歌词）：" + diagnostics.rawTitle)
                             Text("DISPLAY_TITLE（未验证）：" + diagnostics.displayTitle)
-                            Text("ARTIST：" + diagnostics.artist)
+                            Text("ARTIST（QQ 原始复合字段）：" + diagnostics.artist)
+                            Text("自动读取状态：" + snapshot.metadataStatus)
                             Text("ALBUM：" + diagnostics.album)
                             Text("DISPLAY_SUBTITLE：" + diagnostics.subtitle)
                             Text("DISPLAY_DESCRIPTION：" + diagnostics.description)
@@ -133,12 +143,12 @@ class MainActivity : ComponentActivity() {
                             Text("同一 ID 内 DISPLAY_TITLE 发生过变化：" +
                                 if (diagnostics.displayTitleChangedWithinId) "是" else "尚未观察到")
                             if (currentId.isNotBlank() && diagnostics.displayTitle.isNotBlank()) {
-                                OutlinedButton(onClick = { editedName = diagnostics.displayTitle }) {
+                                OutlinedButton(onClick = { editedName = diagnostics.displayTitle; editorTouched = true }) {
                                     Text("将 DISPLAY_TITLE 填入编辑框（需人工核实）")
                                 }
                             }
                             Text(
-                                "诊断信息仅在当前运行期间显示；不会自动认定歌曲名称，也不会把歌词写入歌曲缓存。",
+                                "经设备验证的 ARTIST 歌名－歌手格式稳定后会自动缓存，并标明来源；TITLE 不会写入缓存。人工标注优先。",
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
