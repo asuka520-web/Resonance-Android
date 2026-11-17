@@ -2,6 +2,7 @@ package com.resonance.app
 
 import android.content.ComponentName
 import android.content.Intent
+import android.content.Context
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -23,6 +24,11 @@ class MainActivity : ComponentActivity() {
             var fast by remember { mutableIntStateOf(0) }
             var partial by remember { mutableIntStateOf(0) }
             var completed by remember { mutableIntStateOf(0) }
+            var customName by remember { mutableStateOf("") }
+            var labelsVersion by remember { mutableIntStateOf(0) }
+            val prefs = remember { getSharedPreferences("resonance_song_labels", Context.MODE_PRIVATE) }
+            val currentId = title.removePrefix("媒体 ID：").takeIf { title.startsWith("媒体 ID：") }
+            val mappedName = remember(currentId, labelsVersion) { currentId?.let { prefs.getString(it, null) } }
             DisposableEffect(Unit) {
                 val listener: (MusicSnapshot) -> Unit = { snapshot ->
                     title = snapshot.title
@@ -38,7 +44,17 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Scaffold(topBar = { Text("Resonance · 共鸣", modifier = Modifier.padding(20.dp), style = MaterialTheme.typography.headlineSmall) }) { inner ->
                     Column(Modifier.padding(inner).padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                        Text("当前歌曲：$title")
+                        Text("当前歌曲：${mappedName ?: title}")
+                        if (currentId != null) {
+                            Text("稳定歌曲 ID：$currentId", style = MaterialTheme.typography.bodySmall)
+                            OutlinedTextField(value = customName, onValueChange = { customName = it }, label = { Text("为这首歌标注名称（可选）") }, singleLine = true)
+                            Button(enabled = customName.isNotBlank(), onClick = {
+                                prefs.edit().putString(currentId, customName.trim()).apply()
+                                labelsVersion++
+                                customName = ""
+                            }) { Text("保存歌曲名称") }
+                            Text("名称只保存在本机；不读取歌词，也不上传听歌记录。", style = MaterialTheme.typography.bodySmall)
+                        }
                         Text("连续快速跳过：$skips / 4")
                         Text("本地历史：快速跳过 $fast · 中途切歌 $partial · 基本听完 $completed")
                         Text("判断规则：15 秒内快速跳过；未达 70% 为中途切歌；达到 70% 视为基本听完。")
