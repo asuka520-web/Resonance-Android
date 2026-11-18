@@ -69,20 +69,20 @@ class MainActivity : ComponentActivity() {
                 onDispose { MusicState.unsubscribe(listener) }
             }
 
-            MaterialTheme {
-                Scaffold(topBar = {
-                    Text(
-                        "共鸣 · 旧版监听与记录",
-                        style = MaterialTheme.typography.headlineSmall,
-                        modifier = Modifier.padding(20.dp)
-                    )
+            ResonanceTheme {
+                val motion = rememberMotionEnvironment()
+                CompositionLocalProvider(LocalResonanceMotion provides motion.enabled) {
+                Scaffold(containerColor = ResonancePalette.ink, topBar = {
+                    Box(Modifier.padding(horizontal = Space.x5, vertical = Space.x2)) {
+                        SectionHeader("共鸣 · 旧版监听与记录", null, "")
+                    }
                 }) { inner ->
                     Column(
                         modifier = Modifier.fillMaxSize().padding(inner)
-                            .verticalScroll(rememberScrollState()).padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                            .verticalScroll(rememberScrollState()).padding(Space.x5),
+                        verticalArrangement = Arrangement.spacedBy(Space.x3)
                     ) {
-                        Button(onClick = { startActivity(Intent(context, QqAccountActivity::class.java)
+                        PrimaryButton(onClick = { startActivity(Intent(context, QqAccountActivity::class.java)
                             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)) }) {
                             Text("进入 QQ 账号播放器（接入验证）")
                         }
@@ -100,7 +100,7 @@ class MainActivity : ComponentActivity() {
                         }
                         RecommendationPanel(info, snapshot)
                         if (currentId.isNotBlank()) {
-                            OutlinedButton(onClick = { showSongEditor = !showSongEditor }) {
+                            OutlineButton(onClick = { showSongEditor = !showSongEditor }) {
                                 Text(if (showSongEditor) "收起歌曲信息编辑" else "核实 / 修改歌曲信息")
                             }
                             if (showSongEditor) {
@@ -119,7 +119,7 @@ class MainActivity : ComponentActivity() {
                                 label = { Text("专辑（可选）") }, singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
-                            Button(
+                            PrimaryButton(
                                 enabled = editedName.isNotBlank(),
                                 onClick = {
                                     SongInfoStore.saveConfirmed(
@@ -131,8 +131,8 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        HorizontalDivider()
-                        Button(onClick = { showDiagnostics = !showDiagnostics }) {
+                        HorizontalDivider(color = ResonancePalette.line)
+                        PrimaryButton(onClick = { showDiagnostics = !showDiagnostics }) {
                             Text(if (showDiagnostics) "收起媒体元数据诊断" else "查看媒体元数据诊断")
                         }
                         if (showDiagnostics) {
@@ -153,7 +153,7 @@ class MainActivity : ComponentActivity() {
                             Text("同一 ID 内 DISPLAY_TITLE 发生过变化：" +
                                 if (diagnostics.displayTitleChangedWithinId) "是" else "尚未观察到")
                             if (currentId.isNotBlank() && diagnostics.displayTitle.isNotBlank()) {
-                                OutlinedButton(onClick = { editedName = diagnostics.displayTitle; editorTouched = true }) {
+                                OutlineButton(onClick = { editedName = diagnostics.displayTitle; editorTouched = true }) {
                                     Text("将 DISPLAY_TITLE 填入编辑框（需人工核实）")
                                 }
                             }
@@ -163,7 +163,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        HorizontalDivider()
+                        HorizontalDivider(color = ResonancePalette.line)
                         Text("连续快速跳过：" + snapshot.skips + " / 4")
                         Text("最近记录累计：快速跳过 " + snapshot.fast + " · 中途切歌 " +
                             snapshot.partial + " · 基本听完 " + snapshot.completed)
@@ -174,7 +174,7 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxWidth()
                         )
 
-                        Button(onClick = { showProfile = !showProfile; historyRevision++ }) {
+                        PrimaryButton(onClick = { showProfile = !showProfile; historyRevision++ }) {
                             Text(if (showProfile) "收起偏好分析" else "查看短期 / 长期偏好分析")
                         }
                         if (showProfile) {
@@ -187,11 +187,11 @@ class MainActivity : ComponentActivity() {
                             Text("这是单曲行为评分；曲风推荐单独使用已核对的公开曲库标签。")
                         }
 
-                        Button(onClick = { showHistory = !showHistory; historyRevision++ }) {
+                        PrimaryButton(onClick = { showHistory = !showHistory; historyRevision++ }) {
                             Text(if (showHistory) "收起最近记录" else "查看最近 10 条记录")
                         }
                         if (showHistory) {
-                            if (history.length() == 0) Text("暂无历史记录")
+                            if (history.length() == 0) EmptyState("暂无历史记录")
                             for (i in history.length() - 1 downTo maxOf(0, history.length() - 10)) {
                                 val item = history.optJSONObject(i) ?: continue
                                 val id = item.optString("mediaId")
@@ -206,7 +206,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        Button(onClick = {
+                        PrimaryButton(onClick = {
                             val labels = JSONObject()
                             legacyLabels.all.forEach { (id, value) ->
                                 if (value is String) labels.put(id, value)
@@ -225,8 +225,8 @@ class MainActivity : ComponentActivity() {
                             startActivity(Intent.createChooser(send, "导出 Resonance 本地记录"))
                         }) { Text("分享 / 导出听歌记录 JSON") }
 
-                        HorizontalDivider()
-                        OutlinedButton(onClick = {
+                        HorizontalDivider(color = ResonancePalette.line)
+                        OutlineButton(onClick = {
                             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                         }) { Text("查看通知读取权限") }
                         Text(
@@ -234,6 +234,7 @@ class MainActivity : ComponentActivity() {
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
+                }
                 }
             }
         }

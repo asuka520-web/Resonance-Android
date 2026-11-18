@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.FilterChip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -165,6 +166,14 @@ internal fun Modifier.resonancePress(interaction: MutableInteractionSource): Mod
 
 @Composable
 private fun ActionButton(label: String, onClick: () -> Unit, modifier: Modifier, solid: Boolean, enabled: Boolean) {
+    ActionButton(onClick, modifier, solid, enabled) {
+        ResonanceText(label, 14, color = LocalContentColor.current, weight = FontWeight.Bold, lines = 2)
+    }
+}
+
+@Composable
+private fun ActionButton(onClick: () -> Unit, modifier: Modifier, solid: Boolean, enabled: Boolean,
+    content: @Composable RowScope.() -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val surface = if (solid) Modifier.background(if (enabled) ResonancePalette.signal else ResonancePalette.surface)
         else Modifier.border(Space.focus, if (enabled) ResonancePalette.sand else ResonancePalette.muted, CircleShape)
@@ -172,8 +181,10 @@ private fun ActionButton(label: String, onClick: () -> Unit, modifier: Modifier,
         role = Role.Button, onClick = onClick)
         .resonancePress(interaction).clip(CircleShape).then(surface).padding(horizontal = 12.dp, vertical = 5.dp),
         contentAlignment = Alignment.Center) {
-        ResonanceText(label, 14, color = if (!enabled) ResonancePalette.muted else if (solid) ResonancePalette.ink else ResonancePalette.sand,
-            weight = FontWeight.Bold, lines = 2)
+        val textColor = if (!enabled) ResonancePalette.muted else if (solid) ResonancePalette.ink else ResonancePalette.sand
+        CompositionLocalProvider(LocalContentColor provides textColor) {
+            Row(verticalAlignment = Alignment.CenterVertically, content = content)
+        }
     }
 }
 
@@ -475,6 +486,16 @@ internal fun PrimaryButton(label: String, onClick: () -> Unit, modifier: Modifie
 @Composable
 internal fun OutlineButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) =
     ActionButton(label, onClick, modifier, solid = false, enabled = enabled)
+
+@Composable
+internal fun PrimaryButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true,
+    content: @Composable RowScope.() -> Unit) =
+    ActionButton(onClick, modifier, solid = true, enabled = enabled, content = content)
+
+@Composable
+internal fun OutlineButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true,
+    content: @Composable RowScope.() -> Unit) =
+    ActionButton(onClick, modifier, solid = false, enabled = enabled, content = content)
 
 @Composable
 internal fun EmptyState(message: String, action: String? = null, onAction: (() -> Unit)? = null) {
