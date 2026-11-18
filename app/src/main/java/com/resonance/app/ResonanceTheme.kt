@@ -3,6 +3,10 @@ package com.resonance.app
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -11,6 +15,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.Typography
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -26,6 +32,7 @@ import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 
 internal const val ResonanceBackgroundArgb = 0xFF070B24
 
@@ -132,4 +139,19 @@ internal fun SheetScaffold(onDismissRequest: () -> Unit, sheetState: SheetState,
             val permission = rememberMotionEnvironment()
             CompositionLocalProvider(LocalResonanceMotion provides permission.enabled) { content() }
         })
+}
+
+@Composable
+internal fun ResonanceDialog(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        val permission = rememberMotionEnvironment()
+        CompositionLocalProvider(LocalResonanceMotion provides permission.enabled) {
+            Surface(Modifier.fillMaxWidth(), color = ResonancePalette.surface, contentColor = ResonancePalette.sand, shape = Corners.dock) {
+                Column(Modifier.padding(Space.x6), verticalArrangement = Arrangement.spacedBy(Space.x3)) {
+                    Text(title, fontSize = TypeSize.title, fontWeight = FontWeight.Black, fontFamily = FontFamily.SansSerif)
+                    content()
+                }
+            }
+        }
+    }
 }

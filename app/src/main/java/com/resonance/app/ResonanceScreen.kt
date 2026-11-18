@@ -807,11 +807,7 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                 }
             }
         }
-        if(showScoreReset)AlertDialog(onDismissRequest={showScoreReset=false},containerColor=Panel,
-            title={Text("清除当前所有分数？")},
-            text={Text("当前账号的全部标签分数归零，之后按新的听歌反馈积累。保留收藏、曲风、听歌记录和陪伴时长；正在播放的歌曲继续播放。")},
-            confirmButton={TextButton(onClick={showScoreReset=false;onClearScores()}){Text("确认清零")}},
-            dismissButton={TextButton(onClick={showScoreReset=false}){Text("取消")}})
+        if (showScoreReset) ClearScoresDialog({ showScoreReset = false }, onClearScores)
         feedbackSong?.let {song->ModalBottomSheet(onDismissRequest={feedbackSong=null},containerColor=Ink,
             sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp).navigationBarsPadding(),verticalArrangement=Arrangement.spacedBy(12.dp)) {

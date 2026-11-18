@@ -5,6 +5,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalLayoutDirection
 import kotlin.math.abs
 
@@ -54,4 +55,34 @@ internal fun TagScores(library: LibraryState, onClear: () -> Unit) {
     if (showCalculation) Text("听完 +2，中途切歌 −1，有效快跳 −3。多标签平分反馈。综合分包含最近 20 条的 70%、最近 500 条归一到 20 条后的 30%，再加主动反馈。",
         fontSize = TypeSize.secondary, color = ResonancePalette.muted)
     TextAction("清除当前所有分数", onClear, ResonancePalette.muted)
+}
+
+@Composable
+internal fun ClearScoresDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    ResonanceDialog("清除当前所有分数？", onDismiss) {
+        val ticker = remember { FrameTicker() }
+        val animate = LocalResonanceMotion.current
+        val framePermission = rememberUpdatedState(animate)
+        var burst by remember { mutableStateOf<BatchSandMotion?>(null) }
+        RunResonanceFrames(ticker, animate, continuous = false, drawSand = false)
+        LaunchedEffect(burst) {
+            if (burst != null) {
+                ticker.await(Motion.BatchExit, framePermission)
+                onDismiss()
+            }
+        }
+        SandPlate("clear-scores", Modifier.size(Space.listCover).align(Alignment.CenterHorizontally),
+            ticker = ticker, batch = burst, density = .25f)
+        Text("当前账号的全部标签分数归零，之后按新的听歌反馈积累。保留收藏、曲风、听歌记录和陪伴时长；正在播放的歌曲继续播放。",
+            fontSize = TypeSize.body, color = ResonancePalette.muted)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+            TextAction("取消", onDismiss, ResonancePalette.muted)
+            PrimaryButton("确认清零", {
+                if (burst == null) {
+                    onConfirm()
+                    if (animate) burst = BatchSandMotion(ticker.time, entering = false) else onDismiss()
+                }
+            })
+        }
+    }
 }
