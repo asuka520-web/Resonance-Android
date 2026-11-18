@@ -550,19 +550,6 @@ internal fun SearchField(value: String, onValueChange: (String) -> Unit, hint: S
 }
 
 @Composable
-internal fun GenreTile(label: String, seed: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val interaction = remember { MutableInteractionSource() }
-    val selectedLine = if (selected) Modifier.border(Space.focus, ResonancePalette.signal, Corners.cover) else Modifier
-    Column(modifier.heightIn(min = Space.touch).selectable(selected, interaction, LocalIndication.current, role = Role.Button,
-        onClick = onClick).resonancePress(interaction),
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.x1)) {
-        SandPlate("genre:$seed", Modifier.fillMaxWidth().aspectRatio(1f).then(selectedLine), density = .55f)
-        Text(label, color = if (selected) ResonancePalette.signal else ResonancePalette.sand,
-            fontSize = TypeSize.caption, maxLines = 2, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-@Composable
 internal fun ResonanceChip(text: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     FilterChip(selected, onClick, { Text(text, fontSize = TypeSize.caption) },

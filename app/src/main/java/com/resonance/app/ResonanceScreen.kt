@@ -131,16 +131,16 @@ private object CoverMemory {
     private val locks = Array(16) { Mutex() }
     private val downloads = Semaphore(3)
 
-    suspend fun load(url: String): ImageBitmap? = withContext(Dispatchers.IO) {
+    suspend fun load(url: String, cacheDir: java.io.File, album: String): ImageBitmap? = withContext(Dispatchers.IO) {
         val lock = locks[(url.hashCode() and Int.MAX_VALUE) % locks.size]
         lock.withLock {
             images.get(url) ?: downloads.withPermit {
-                download(url)?.also { images.put(url, it) }
+                download(url, cacheDir, album)?.also { images.put(url, it) }
             }
         }
     }
 
-    private fun download(url: String): ImageBitmap? = try {
+    private fun download(url: String, cacheDir: java.io.File, album: String): ImageBitmap? = try {
         val connection = URI(url).toURL().openConnection() as HttpURLConnection
         try {
             connection.connectTimeout = 5000
@@ -155,7 +155,14 @@ private object CoverMemory {
                     output.write(buffer, 0, bytesRead)
                 }
                 val data = output.toByteArray()
-                BitmapFactory.decodeByteArray(data, 0, data.size)?.asImageBitmap()
+                BitmapFactory.decodeByteArray(data, 0, data.size)?.let { bitmap ->
+                    try {
+                        CoverThumbnails.save(cacheDir, album, data)
+                    } catch (_: SecurityException) {
+                        // An unavailable thumbnail cache leaves ordinary artwork usable.
+                    }
+                    bitmap.asImageBitmap()
+                }
             }
         } finally {
             connection.disconnect()
@@ -171,13 +178,14 @@ internal data class ArtworkLoad(val image: ImageBitmap?, val pending: Boolean)
 
 @Composable
 internal fun rememberArtworkLoad(song: QqCatalogueTrack?): ArtworkLoad {
+    val cacheDir = LocalContext.current.cacheDir
     val url = song?.let(CatalogueStore::artwork)
     var load by remember(url) {
         val cached = url?.let { CoverMemory.images.get(it) }
         mutableStateOf(ArtworkLoad(cached, url != null && cached == null))
     }
     LaunchedEffect(url) {
-        if (url != null && load.pending) load = ArtworkLoad(CoverMemory.load(url), pending = false)
+        if (url != null && load.pending) load = ArtworkLoad(CoverMemory.load(url, cacheDir, song?.albumMid.orEmpty()), pending = false)
     }
     return load
 }
@@ -274,7 +282,7 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
     val logoVisible by remember(listState) { derivedStateOf { listState.partVisible("resonance-logo") } }
     val animatePlate = homeActive && plateVisible
     val scores = remember(tab, library.favorites, library.discoveries, library.genres, library.scoreSignals, library.manualScores) {
-        if((tab == 0 || tab == 3) && connected) library.genreScores().sortedByDescending { abs(it.combined) } else emptyList()
+        if(tab != 2 && connected) library.genreScores().sortedByDescending { abs(it.combined) } else emptyList()
     }
     val scoreSnapshot = remember(scores) { scores.filter { it.combined != 0.0 }.associate { it.label to it.combined } }
     var seenScores by remember(library.accountScope) { mutableStateOf<Map<String, Double>?>(null) }
@@ -310,8 +318,14 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
         if (playlistId != null && first != null) playlistSeeds[playlistId] = first
     }
     val browserEntries = rememberDiscoveryEntries(library, discoverySearch, unheardOnly, discoveryGenre, tab == 1)
-    val discoveryGenres = remember(library.discoveries, library.genres) {
-        library.discoveries.flatMap { library.genres[it.mid]?.labels.orEmpty() }.distinct().sorted().chunked(4)
+    val thumbnailDir = LocalContext.current.cacheDir
+    val discoveryGenres by key(library.accountScope) {
+        produceState(emptyList<List<GenreTileData>>(), tab, library.favorites, library.discoveries, library.genres, scores) {
+            if (tab == 1) {
+                val cached = withContext(Dispatchers.IO) { CoverThumbnails.availableAlbums(thumbnailDir) }
+                value = withContext(Dispatchers.Default) { discoveryTiles(library, scores, cached).chunked(3) }
+            }
+        }
     }
     val profileRenderer = remember { HomeSandRenderer() }
     val profileGraphVisible by remember(pages[3]) { derivedStateOf { pages[3].partVisible("profile-graph") } }
@@ -436,12 +450,12 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                                 { draftIntent = library.intent; scoreTab = false; showIntent = true }, Accent)
                         }
                     }
-                    items(discoveryGenres, key = { "genre-grid-${it.first()}" }) { row ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
-                            row.forEach { label ->
-                                GenreTile(genreName(label), label, discoveryGenre == label, { discoveryGenre = label }, Modifier.weight(1f))
+                    items(discoveryGenres, key = { "genre-grid-${it.first().label}" }) { row ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.tileGap)) {
+                            row.forEach { tile ->
+                                GenreTile(tile, discoveryGenre == tile.label, { discoveryGenre = tile.label }, Modifier.weight(1f))
                             }
-                            repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+                            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                         }
                     }
                     val entries = browserEntries.orEmpty()

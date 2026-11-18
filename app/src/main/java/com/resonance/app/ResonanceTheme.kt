@@ -60,6 +60,7 @@ internal object Space {
     val listCover = 56.dp
     val dockCover = 42.dp
     val heroCover = 96.dp
+    val tileGap = 10.dp
     val thin = 1.dp
     val focus = 1.5.dp
     val progressLine = 2.dp
@@ -99,6 +100,7 @@ internal object TypeSize {
     val title = 22.sp
     val song = 26.sp
     val score = 30.sp
+    val genreTileLine = 14.95.sp
     val compactLine = 17.sp
     val lead = 18.sp
     val mediumLine = 19.sp

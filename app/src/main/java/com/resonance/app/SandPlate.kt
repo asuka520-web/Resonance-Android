@@ -109,7 +109,7 @@ private suspend fun loadSand(trackId: String, compact: Boolean): List<FloatArray
 @Composable
 internal fun SandPlate(trackId: String, modifier: Modifier = Modifier,
     ticker: FrameTicker? = null, fadeStartedAt: Long? = null,
-    density: Float = 1f, animated: Boolean = false, animation: SandAnimation? = null) {
+    density: Float = 1f, opacity: Float = 1f, animated: Boolean = false, animation: SandAnimation? = null) {
     val budget = LocalSandBudget.current
     val id = remember { Any() }
     val requested = ((if (animation == null) SmallGrains else FullGrains) * density.coerceIn(0f, 1f)).toInt()
@@ -120,12 +120,12 @@ internal fun SandPlate(trackId: String, modifier: Modifier = Modifier,
     val granted = { budget?.granted(id) ?: requested }
     if (animation != null) {
         AnimatedSandPlate(trackId, animation, animated, granted, placed)
-    } else CompactSandPlate(trackId, placed, ticker, fadeStartedAt, granted)
+    } else CompactSandPlate(trackId, placed, ticker, fadeStartedAt, opacity, granted)
 }
 
 @Composable
 private fun CompactSandPlate(trackId: String, modifier: Modifier,
-    ticker: FrameTicker?, fadeStartedAt: Long?, granted: () -> Int) {
+    ticker: FrameTicker?, fadeStartedAt: Long?, opacity: Float, granted: () -> Int) {
     var layers by remember(trackId) { mutableStateOf(sandCache.get(trackId)?.small) }
     LaunchedEffect(trackId) { if (layers == null) layers = loadSand(trackId, compact = true) }
     val points = remember { FloatArray(SmallGrains * 2) }
@@ -137,7 +137,7 @@ private fun CompactSandPlate(trackId: String, modifier: Modifier,
             .drawWithCache {
                 val jitter = Space.restJitter.toPx()
                 val particles = layers?.single()
-                val paint = sandPaint(Space.smallGrain.toPx(), 255)
+                val paint = sandPaint(Space.smallGrain.toPx(), (opacity.coerceIn(0f, 1f) * 255).toInt())
                 if (particles != null) {
                     for (index in 0 until SmallGrains) {
                         val offset = index * ParticleStride
