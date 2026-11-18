@@ -164,13 +164,16 @@ internal fun Modifier.resonancePress(interaction: MutableInteractionSource): Mod
 
 
 @Composable
-private fun ActionButton(label: String, onClick: () -> Unit, modifier: Modifier, solid: Boolean) {
+private fun ActionButton(label: String, onClick: () -> Unit, modifier: Modifier, solid: Boolean, enabled: Boolean) {
     val interaction = remember { MutableInteractionSource() }
-    val surface = if (solid) Modifier.background(ResonancePalette.signal) else Modifier.border(1.5.dp, ResonancePalette.sand, CircleShape)
-    Box(modifier.heightIn(min = 48.dp).clickable(interaction, LocalIndication.current, role = Role.Button, onClick = onClick)
+    val surface = if (solid) Modifier.background(if (enabled) ResonancePalette.signal else ResonancePalette.surface)
+        else Modifier.border(Space.focus, if (enabled) ResonancePalette.sand else ResonancePalette.muted, CircleShape)
+    Box(modifier.heightIn(min = Space.touch).clickable(interaction, LocalIndication.current, enabled = enabled,
+        role = Role.Button, onClick = onClick)
         .resonancePress(interaction).clip(CircleShape).then(surface).padding(horizontal = 12.dp, vertical = 5.dp),
         contentAlignment = Alignment.Center) {
-        ResonanceText(label, 14, color = if (solid) ResonancePalette.ink else ResonancePalette.sand, weight = FontWeight.Bold, lines = 2)
+        ResonanceText(label, 14, color = if (!enabled) ResonancePalette.muted else if (solid) ResonancePalette.ink else ResonancePalette.sand,
+            weight = FontWeight.Bold, lines = 2)
     }
 }
 
@@ -460,12 +463,12 @@ private fun ShuffleGlyph(color: Color) {
 }
 
 @Composable
-internal fun PrimaryButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) =
-    ActionButton(label, onClick, modifier, solid = true)
+internal fun PrimaryButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) =
+    ActionButton(label, onClick, modifier, solid = true, enabled = enabled)
 
 @Composable
-internal fun OutlineButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) =
-    ActionButton(label, onClick, modifier, solid = false)
+internal fun OutlineButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) =
+    ActionButton(label, onClick, modifier, solid = false, enabled = enabled)
 
 @Composable
 internal fun EmptyState(message: String, action: String? = null, onAction: (() -> Unit)? = null) {

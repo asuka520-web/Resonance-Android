@@ -749,16 +749,17 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
             DirectionChangeBanner(notice,Modifier.align(Alignment.BottomCenter).padding(bottom=32.dp))
             }
         }
-        detailSong?.let {song -> ModalBottomSheet(onDismissRequest={detailSong=null},containerColor=Ink,
+        detailSong?.let {song -> SheetScaffold(onDismissRequest={detailSong=null},
             sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
-            Box {Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp).navigationBarsPadding(),verticalArrangement=Arrangement.spacedBy(14.dp)) {
-                Text("歌曲详情",color=Muted,fontSize=12.sp)
-                Text(song.name,fontSize=24.sp,fontWeight=FontWeight.SemiBold)
+            Box {Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(Space.x6).navigationBarsPadding(),verticalArrangement=Arrangement.spacedBy(Space.x3)) {
+                SectionHeader("歌曲详情", null, "")
+                Text(song.name, style = resonanceTextStyle(TypeSize.song, FontWeight.ExtraBold, true))
                 Text(song.artist,color=Muted,fontSize=14.sp)
                 if(song.album.isNotBlank())Text(song.album,color=Muted,fontSize=12.sp)
                 Text(timeText(song.durationMs),color=Muted,fontSize=12.sp)
                 FavoriteControl(song,library,onFavorite)
-                Text("全部曲风标签",fontSize=15.sp)
+                HorizontalDivider(color = SoftLine)
+                SectionHeader("全部曲风标签", null, "")
                 Text(library.genres[song.mid]?.labels?.takeIf {it.isNotEmpty()}?.sorted()?.joinToString(" · ") {genreName(it)}
                     ?: GenreLookupPolicy.description(library.genres[song.mid]),color=Accent,fontSize=14.sp,lineHeight=24.sp)
                 library.genres[song.mid]?.providers()?.forEach {(provider,labels)->
@@ -770,10 +771,10 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                     Text("来自严格匹配录音的社区标注，至少 2 票；单独展示，尚不用于自动选歌，也不是声音模型识别结果。",color=Muted,fontSize=11.sp,lineHeight=18.sp)
                 }
                 Text(library.genres[song.mid]?.enrichmentNote?.ifBlank {"仅展示曲库实际提供的标签，缺少资料不会猜测情绪。"}?:"缺少曲风不影响播放，惊喜抽取不会为歌曲添加标签。",color=Muted,fontSize=11.sp,lineHeight=18.sp)
-                OutlinedButton(onClick={onEnrich(song.mid)},enabled=supplements && connected && !library.enriching){Text("补充这首的标签")}
+                OutlineButton("补充这首的标签", { onEnrich(song.mid) }, enabled = supplements && connected && !library.enriching)
                 Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
-                    TextButton(onClick={openFeedback(song,true)}){Text("多来这种")}
-                    TextButton(onClick={openFeedback(song,false)}){Text("暂时少放")}
+                    TextAction("多来这种", { openFeedback(song, true) }, Accent)
+                    TextAction("暂时少放", { openFeedback(song, false) }, Muted)
                 }
                 Spacer(Modifier.height(20.dp))
             }
