@@ -809,17 +809,18 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
             }
         }
         if (showScoreReset) ClearScoresDialog({ showScoreReset = false }, onClearScores)
-        feedbackSong?.let {song->ModalBottomSheet(onDismissRequest={feedbackSong=null},containerColor=Ink,
+        feedbackSong?.let {song->SheetScaffold(onDismissRequest={feedbackSong=null},
             sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
-            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp).navigationBarsPadding(),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-                Text(if(feedbackMore)"多来这种" else "暂时少放",fontSize=24.sp,fontWeight=FontWeight.SemiBold)
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(Space.x6).navigationBarsPadding(),verticalArrangement=Arrangement.spacedBy(Space.x3)) {
+                SectionHeader(if (feedbackMore) "多来这种" else "暂时少放", null, "")
                 Text(song.name,color=Muted,fontSize=13.sp)
                 Text("选择要调整的曲风。每次主动反馈 ${if(feedbackMore)"+2" else "−2"}，累计上限 ±6；影响相似推荐、换向和随机权重。",fontSize=12.sp,color=Muted,lineHeight=20.sp)
                 val labels=library.genres[song.mid]?.labels.orEmpty()
-                if(labels.isEmpty())Text("这首歌还没有可靠曲风，先补充资料后再调整。",color=Muted,fontSize=13.sp)
-                labels.sorted().forEach {tag->FilterChip(tag in feedbackLabels,{feedbackLabels=if(tag in feedbackLabels)feedbackLabels-tag else feedbackLabels+tag},label={Text(genreName(tag))})}
+                if (labels.isEmpty()) EmptyState("这首歌还没有可靠曲风，先补充资料后再调整。")
+                labels.sorted().forEach {tag->ResonanceChip(genreName(tag), tag in feedbackLabels) { feedbackLabels = if (tag in feedbackLabels) feedbackLabels - tag else feedbackLabels + tag }}
                 if(labels.size==1)Text("目前只有一个标签，反馈会影响所有带这个标签的歌。",fontSize=11.sp,color=Muted,lineHeight=18.sp)
-                Button(onClick={onSongFeedback(song.mid,feedbackLabels,feedbackMore);feedbackSong=null},enabled=feedbackLabels.isNotEmpty(),modifier=Modifier.fillMaxWidth()){Text("确认调整")}
+                PrimaryButton("确认调整", { onSongFeedback(song.mid, feedbackLabels, feedbackMore); feedbackSong = null },
+                    Modifier.fillMaxWidth(), enabled = feedbackLabels.isNotEmpty())
             }
         }}
         if(showDirectionHistory)ModalBottomSheet(onDismissRequest={showDirectionHistory=false},containerColor=Ink,
