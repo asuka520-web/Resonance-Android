@@ -823,20 +823,21 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                     Modifier.fillMaxWidth(), enabled = feedbackLabels.isNotEmpty())
             }
         }}
-        if(showDirectionHistory)ModalBottomSheet(onDismissRequest={showDirectionHistory=false},containerColor=Ink,
+        if(showDirectionHistory)SheetScaffold(onDismissRequest={showDirectionHistory=false},
             sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
-            LazyColumn(Modifier.fillMaxWidth().navigationBarsPadding(),contentPadding=PaddingValues(24.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
-                item {Text("最近换向记录",fontSize=24.sp,fontWeight=FontWeight.SemiBold)
+            LazyColumn(Modifier.fillMaxWidth().navigationBarsPadding(),contentPadding=PaddingValues(Space.x6),verticalArrangement=Arrangement.spacedBy(Space.x4)) {
+                item {SectionHeader("最近换向记录", null, "")
                     Text("只在目标歌曲实际播放且进度推进后确认；保存最近 20 次。",color=Muted,fontSize=12.sp,lineHeight=20.sp)}
-                if(library.directionHistory.isEmpty())item {Text("还没有自动换向记录。连续 4 次有效快跳后会记录尝试结果。",color=Muted,fontSize=13.sp)}
+                if (library.directionHistory.isEmpty()) item { EmptyState("还没有自动换向记录。连续 4 次有效快跳后会记录尝试结果。") }
                 items(library.directionHistory.asReversed(),key={it.id}) {row ->
-                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Panel).padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(vertical = Space.x2), verticalArrangement = Arrangement.spacedBy(Space.x2)) {
                         Text(directionStateName(row.state)+" · "+directionLabel(row.kind),color=Accent,fontSize=12.sp)
                         Text(row.targetName.ifBlank {row.targetMid},fontSize=17.sp)
                         Text(java.text.SimpleDateFormat("MM-dd HH:mm:ss",java.util.Locale.getDefault()).format(java.util.Date(row.time)),fontSize=11.sp,color=Muted)
                         Text(row.detail.ifBlank {"等待目标歌曲播放确认"},fontSize=12.sp,lineHeight=20.sp)
                         Text(row.reason,fontSize=11.sp,color=Muted,lineHeight=18.sp)
                         Text("当时标签分数："+row.scores.entries.sortedByDescending {it.value}.joinToString(" · "){genreName(it.key)+" "+scoreText(it.value)}.ifBlank {"暂无可用标签"},fontSize=11.sp,color=Muted,lineHeight=18.sp)
+                        HorizontalDivider(color = SoftLine)
                     }
                 }
             }
@@ -877,12 +878,15 @@ fun DirectionChangeBanner(notice:DirectionNotice?,modifier:Modifier=Modifier) {
     var visible by remember {mutableStateOf(false)}
     var shown by remember {mutableStateOf<DirectionNotice?>(null)}
     LaunchedEffect(notice?.id) {
-        val remaining=notice?.let {3600-(SystemClock.elapsedRealtime()-it.createdAt)}?:0
+        val remaining=notice?.let {Motion.NoticeLifetime-(SystemClock.elapsedRealtime()-it.createdAt)}?:0
         if(notice!=null && remaining>0) {
             shown=notice;visible=true;delay(remaining);visible=false
         } else visible=false
     }
-    AnimatedVisibility(visible,modifier.padding(horizontal=24.dp).widthIn(max=340.dp),enter=fadeIn(tween(200)),exit=fadeOut(tween(450))) {
+    val fade = LocalResonanceMotion.current
+    AnimatedVisibility(visible, modifier.padding(horizontal = Space.x6).widthIn(max = Space.x8 * 10 + Space.x5),
+        enter = fadeIn(if (fade) tween(Motion.NoticeEnter, easing = Motion.easeInOut) else snap()),
+        exit = fadeOut(if (fade) tween(Motion.NoticeExit, easing = Motion.easeInOut) else snap())) {
         Box(Modifier.clip(RoundedCornerShape(22.dp)).background(Accent.copy(alpha=.96f)).padding(horizontal=18.dp,vertical=13.dp)
             .semantics {liveRegion=LiveRegionMode.Polite}) {
             Text(shown?.message?.takeIf {it.isNotBlank()} ?: (if(shown?.kind=="BATCH")"已换一批" else "已换个方向")+shown?.genres?.takeIf {it.isNotEmpty()}?.sorted()?.joinToString(" · ",prefix=" · ") {genreName(it)}.orEmpty(),
