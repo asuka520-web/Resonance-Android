@@ -1,6 +1,10 @@
 package com.resonance.app
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.graphics.BitmapFactory
+import android.net.Uri
+import android.provider.Settings
 import android.util.LruCache
 import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
@@ -623,6 +627,28 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                         HorizontalDivider(color = SoftLine)
                     }
                     item { SectionHeader("听歌方式", null, "") }
+                    item {
+                        Column(Modifier.fillMaxWidth().padding(vertical = Space.x2)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(Space.x3)) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("系统播放卡片", fontSize = TypeSize.body, fontWeight = FontWeight.Medium)
+                                    Text("部分手机需要允许通知，才会在通知栏或锁屏显示播放控制。",
+                                        fontSize = TypeSize.caption, color = Muted, modifier = Modifier.padding(top = Space.x1))
+                                }
+                                TextAction("通知设置", {
+                                    try {
+                                        context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
+                                    } catch (_: ActivityNotFoundException) {
+                                        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                                            .setData(Uri.fromParts("package", context.packageName, null)))
+                                    }
+                                }, Accent)
+                            }
+                            HorizontalDivider(Modifier.padding(top = Space.x2), color = SoftLine)
+                        }
+                    }
                     item {PlaybackRangeChoices(player.playbackRange,onPlaybackRange)}
                     item {SettingSwitch("连续快跳，自动换方向","每满 4 次有效快跳，尝试不同曲风。",autoDirection){autoDirection=it;settings.edit().putBoolean("qq_auto_direction",it).apply()}}
                     item {Text("换方向后的等待",fontSize=TypeSize.action)

@@ -353,6 +353,23 @@ class ResonanceScreenTest {
     @Config(qualifiers = "zh-rCN-w412dp-h891dp-xhdpi")
     fun migratedPagesFitAt412Dp() = assertMigratedPages("system-412")
 
+    @Test
+    fun playbackNotificationSettingsOpensForTheRunningPackage() {
+        show(LibraryState(accountScope = "test"))
+        compose.onNodeWithText("我的", useUnmergedTree = true).performClick()
+        compose.onAllNodes(hasScrollToIndexAction() and hasScrollAction()).onFirst()
+            .performScrollToNode(hasText("通知设置"))
+        compose.onNodeWithText("通知设置").performClick()
+
+        val activity = compose.activity
+        val intent = org.robolectric.Shadows.shadowOf(activity).nextStartedActivity
+        assertEquals(Settings.ACTION_APP_NOTIFICATION_SETTINGS, intent.action)
+        assertEquals(activity.packageName, intent.getStringExtra(Settings.EXTRA_APP_PACKAGE))
+        val packageInfo = activity.packageManager.getPackageInfo(activity.packageName,
+            android.content.pm.PackageManager.PackageInfoFlags.of(android.content.pm.PackageManager.GET_PERMISSIONS.toLong()))
+        assertTrue(android.Manifest.permission.POST_NOTIFICATIONS in packageInfo.requestedPermissions.orEmpty())
+    }
+
     private fun assertMigratedPages(prefix: String) {
         val song = QqCatalogueTrack("system", "system", "界面测试歌曲", "测试歌手", "", 200000)
         val outside = song.copy(mid = "outside", mediaMid = "outside", name = "发现测试歌曲")
