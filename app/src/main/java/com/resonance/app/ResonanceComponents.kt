@@ -42,12 +42,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
@@ -291,7 +294,7 @@ internal fun SectionHeader(title: String, onAction: (() -> Unit)?, action: Strin
 internal fun TrackRow(
     song: QqCatalogueTrack, reason: String, current: Boolean, onPlay: () -> Unit, onDetails: () -> Unit,
     unfamiliar: Boolean = false,
-    subtitle: String = "", detailsButton: Boolean = false,
+    subtitle: String = "", detailsButton: Boolean = false, quietDetails: Boolean = false,
     supporting: @Composable ColumnScope.() -> Unit = {}
 ) {
     Row(Modifier.fillMaxWidth().heightIn(min = Space.trackHeight),
@@ -315,7 +318,7 @@ internal fun TrackRow(
             }
         }
         if (detailsButton) {
-            IconAction("${song.name}的歌曲详情", onDetails, ResonancePalette.sand, outline = true) {
+            IconAction("${song.name}的歌曲详情", onDetails, ResonancePalette.sand, outline = !quietDetails) {
                 Glyph(ResonanceGlyph.DETAILS, Modifier.size(Space.x4), ResonancePalette.sand)
             }
         } else IconAction("播放 ${song.name}", onPlay, ResonancePalette.sand, outline = true) {
@@ -555,4 +558,29 @@ internal fun ResonanceChip(text: String, selected: Boolean, enabled: Boolean = t
     FilterChip(selected, onClick, { Text(text, fontSize = TypeSize.caption) },
         modifier = Modifier.heightIn(min = Space.touch).resonancePress(interaction), enabled = enabled,
         shape = CircleShape, interactionSource = interaction)
+}
+
+@Composable
+internal fun CatalogueDotGrid(total: Int, identified: Int) {
+    if (total <= 0) return
+    val filled = identified.coerceIn(0, total)
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val columns = (maxWidth / Space.catalogueDotPitch).toInt().coerceAtLeast(1)
+        val lines = (total - 1) / columns + 1
+        Canvas(Modifier.fillMaxWidth().height(Space.catalogueDotPitch * lines).drawWithCache {
+            val pitch = Space.catalogueDotPitch.toPx()
+            val points = FloatArray(total * 2)
+            for (i in 0 until total) {
+                points[i * 2] = (i % columns + .5f) * pitch
+                points[i * 2 + 1] = (i / columns + .5f) * pitch
+            }
+            val known = sandPaint(Space.catalogueDot.toPx() / 2f, 255)
+            val missing = sandPaint(Space.catalogueDot.toPx() / 2f, 255).apply { color = ResonancePalette.line.toArgb() }
+            onDrawBehind {
+                val canvas = drawContext.canvas.nativeCanvas
+                if (filled > 0) canvas.drawPoints(points, 0, filled * 2, known)
+                if (filled < total) canvas.drawPoints(points, filled * 2, (total - filled) * 2, missing)
+            }
+        }) {}
+    }
 }

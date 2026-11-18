@@ -498,19 +498,23 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                     item { SearchField(search, { search = it }, "搜索歌曲、歌手") }
                     if(library.openedPlaylist==null && connected) item {
                         val coverage=if(library.favorites.isEmpty())0 else library.taggedCount*100/library.favorites.size
-                        Row(
+                        Column(
                             Modifier.fillMaxWidth().heightIn(min = Space.touch)
-                                .clickable(role=Role.Button) {showCatalogueDetails=!showCatalogueDetails}
-                                .semantics {stateDescription=if(showCatalogueDetails)"已展开" else "已收起"}
+                                .clickable(role = Role.Button) { showCatalogueDetails = !showCatalogueDetails }
+                                .semantics { stateDescription = if (showCatalogueDetails) "已展开" else "已收起" }
                                 .padding(vertical = Space.x3),
-                            verticalAlignment=Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(Space.x2)
                         ) {
-                            Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(Space.logoStroke)) {
-                                Text("曲风资料",fontSize=TypeSize.body,fontWeight=FontWeight.Medium)
-                                Text(if(library.enriching)"补充中 ${library.enrichedProgress}/${library.enrichmentTotal}"
-                                    else "${library.taggedCount} / ${library.favorites.size} 首 · $coverage%",color=Muted,fontSize=TypeSize.caption)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.logoStroke)) {
+                                    Text("曲风资料", fontSize = TypeSize.body, fontWeight = FontWeight.Medium)
+                                    Text(if (library.enriching) "补充中 ${library.enrichedProgress}/${library.enrichmentTotal}"
+                                        else "${library.taggedCount} / ${library.favorites.size} 首 · $coverage%",
+                                        color = Muted, fontSize = TypeSize.caption)
+                                }
+                                Text(if (showCatalogueDetails) "收起" else "管理", color = Accent, fontSize = TypeSize.secondary)
                             }
-                            Text(if(showCatalogueDetails)"收起" else "管理",color=Accent,fontSize=TypeSize.secondary)
+                            CatalogueDotGrid(library.favorites.size, library.taggedCount)
                         }
                     }
                     if (library.openedPlaylist == null && connected) item { HorizontalDivider(color = SoftLine) }
@@ -565,7 +569,7 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                     }
                     items(filtered, key = { it.mid }) { song ->
                         TrackRow(song, "", song.mid == player.mid, { onPlay(song) }, { detailSong = song },
-                            subtitle = if (library.activeGenreMid == song.mid) "正在查询曲风…" else "", detailsButton = true) {
+                            subtitle = if (library.activeGenreMid == song.mid) "正在查询曲风…" else "", detailsButton = true, quietDetails = true) {
                             TrackGenres(library.genres[song.mid])
                         }
                     }

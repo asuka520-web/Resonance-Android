@@ -61,6 +61,8 @@ internal object Space {
     val dockCover = 42.dp
     val heroCover = 96.dp
     val weekTileWidth = 44.dp
+    val catalogueDot = 3.dp
+    val catalogueDotPitch = 6.dp
     val profileScoreWidth = 140.dp
     val tileGap = 10.dp
     val thin = 1.dp
