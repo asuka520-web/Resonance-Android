@@ -14,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
@@ -26,10 +27,12 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import java.util.Random
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 import kotlin.math.PI
@@ -213,6 +216,15 @@ internal class HomeSandRenderer {
             ticker.request(Motion.TrackChange, sand = true) else null, cold)
     }
 
+    fun gatherStartedAt(trackId: String): Long? = pattern?.takeIf { it.trackId == trackId }?.began
+
+    fun finishGather(trackId: String, startedAt: Long): Boolean {
+        val current = pattern ?: return false
+        if (current.trackId != trackId || current.began != startedAt) return false
+        pattern = current.copy(began = null)
+        return true
+    }
+
     fun settle() {
         val current = pattern
         if (current?.began != null) pattern = current.copy(began = null)
@@ -290,6 +302,7 @@ private fun AnimatedSandPlate(trackId: String, animation: SandAnimation, live: B
     val cold = animation.cold
     val systemMotion = animation.systemMotion
     val onFirstPattern = animation.onFirstPattern
+    val view = LocalView.current
     val animate = LocalResonanceMotion.current && visible
     val owner = remember { Any() }
     DisposableEffect(owner, live, animate) {
@@ -309,6 +322,12 @@ private fun AnimatedSandPlate(trackId: String, animation: SandAnimation, live: B
             renderer.settle()
         }
         renderer.update(playing, match, ticker, animate, animation.liveClarity, animation.sigmaDp)
+    }
+    val gatherStarted = renderer.gatherStartedAt(trackId)
+    LaunchedEffect(trackId, gatherStarted, live, animate, view) {
+        if (!live || !animate || gatherStarted == null) return@LaunchedEffect
+        snapshotFlow { ticker.age(gatherStarted, sand = true) >= Motion.TrackChange }.first { it }
+        if (renderer.finishGather(trackId, gatherStarted)) view.resonanceHaptic(confirmation = true)
     }
     Canvas(modifier.clip(Corners.plate).background(ResonancePalette.plate).drawWithCache {
         val paints = arrayOf(sandPaint(Space.mainGrain.toPx(), 255), sandPaint(Space.largeGrain.toPx(), 255), sandPaint(Space.looseGrain.toPx(), 89))

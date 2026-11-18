@@ -9,6 +9,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import kotlin.math.abs
 
@@ -19,10 +20,19 @@ internal fun ListeningIntent.tagPosition(label: String): Float = when (label) {
     else -> 0f
 }
 
-internal fun ListeningIntent.withTagPosition(label: String, position: Float): ListeningIntent = copy(
-    wanted = if (position >= .5f) wanted + label else wanted - label,
-    excluded = if (position <= -.5f) excluded + label else excluded - label
-)
+internal fun intentDetent(position: Float): Int = when {
+    position >= .5f -> 1
+    position <= -.5f -> -1
+    else -> 0
+}
+
+internal fun ListeningIntent.withTagPosition(label: String, position: Float): ListeningIntent {
+    val detent = intentDetent(position)
+    return copy(
+        wanted = if (detent > 0) wanted + label else wanted - label,
+        excluded = if (detent < 0) excluded + label else excluded - label
+    )
+}
 
 @Composable
 internal fun IntentEditor(genres: Map<String, CatalogueGenre>, draft: ListeningIntent,
@@ -86,8 +96,15 @@ internal fun IntentEditor(genres: Map<String, CatalogueGenre>, draft: ListeningI
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun IntentSlider(value: Float, onDrag: (Float) -> Unit, onDrop: (Float) -> Unit) {
+    val view = LocalView.current
     var lastPointerValue by remember { mutableStateOf<Float?>(null) }
-    Slider(value, onValueChange = { lastPointerValue = it; onDrag(it) }, valueRange = -1f..1f,
+    Slider(value, onValueChange = {
+        val previous = intentDetent(lastPointerValue ?: value)
+        val next = intentDetent(it)
+        if (previous != next) view.resonanceHaptic()
+        lastPointerValue = it
+        onDrag(it)
+    }, valueRange = -1f..1f,
         onValueChangeFinished = {
             lastPointerValue?.let(onDrop)
             lastPointerValue = null
