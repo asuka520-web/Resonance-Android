@@ -218,7 +218,8 @@ internal fun SignedScoreBar(bar: State<Float>, modifier: Modifier = Modifier) {
 
 @Composable
 internal fun ScoreRow(label: String, value: String, fraction: State<Float>,
-    modifier: Modifier = Modifier, detail: String = "", trailing: @Composable (() -> Unit)? = null) {
+    modifier: Modifier = Modifier, detail: String = "", trailing: @Composable (() -> Unit)? = null,
+    bar: @Composable (() -> Unit)? = null) {
     Column(modifier.fillMaxWidth().padding(vertical = Space.x2), verticalArrangement = Arrangement.spacedBy(Space.x1)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
             Column(Modifier.weight(1f)) {
@@ -229,7 +230,7 @@ internal fun ScoreRow(label: String, value: String, fraction: State<Float>,
                 style = resonanceTextStyle(TypeSize.track, FontWeight.Bold, true))
             trailing?.invoke()
         }
-        SignedScoreBar(fraction)
+        if (bar == null) SignedScoreBar(fraction) else bar()
     }
 }
 

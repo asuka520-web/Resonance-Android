@@ -90,7 +90,7 @@ internal class SandAnimation(
     val renderer: HomeSandRenderer, val ticker: FrameTicker, val visible: Boolean, val playing: Boolean,
     val match: Float = Motion.DefaultMatch, val cold: Boolean = false, val systemMotion: Boolean = true,
     val onFirstPattern: () -> Unit = {}, val priority: Int = 1,
-    val repeat: Boolean = false
+    val repeat: Boolean = false, val liveClarity: Boolean = false
 )
 
 private suspend fun loadSand(trackId: String, compact: Boolean): List<FloatArray> {
@@ -193,10 +193,10 @@ internal class HomeSandRenderer {
 
     fun strike(ticker: FrameTicker) { strikeAt = ticker.request(Motion.Strike, sand = true) }
 
-    fun update(playing: Boolean, match: Float, ticker: FrameTicker, animate: Boolean) {
+    fun update(playing: Boolean, match: Float, ticker: FrameTicker, animate: Boolean, liveClarity: Boolean) {
         if (playing && amplitude.value(ticker.time) == 0f) playStartedAt = ticker.time
         amplitude.update(if (playing && animate) 1f else 0f, Motion.SandRest, Motion.settle, ticker, animate, sand = true)
-        clarity.update(Motion.sigma(match), Motion.Clarity, Motion.responsive, ticker, animate, sand = true)
+        clarity.update(Motion.sigma(match), Motion.Clarity, Motion.responsive, ticker, animate && !liveClarity, sand = true)
     }
 
     fun setPattern(trackId: String, layers: List<FloatArray>, cold: Boolean, ticker: FrameTicker, animate: Boolean) {
@@ -307,12 +307,12 @@ private fun AnimatedSandPlate(trackId: String, animation: SandAnimation, granted
             if (cold && (animate || !systemMotion)) onFirstPattern()
         }
     }
-    LaunchedEffect(playing, match, animate) {
+    LaunchedEffect(playing, match, animate, animation.liveClarity) {
         if (!animate) {
             renderer.settle()
             ticker.cancelSand()
         }
-        renderer.update(playing, match, ticker, animate)
+        renderer.update(playing, match, ticker, animate, animation.liveClarity)
     }
     Canvas(modifier.clip(Corners.plate).background(ResonancePalette.plate).drawWithCache {
         val paints = arrayOf(sandPaint(.85.dp.toPx(), 255), sandPaint(1.3.dp.toPx(), 255), sandPaint(.6.dp.toPx(), 89))

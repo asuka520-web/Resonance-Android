@@ -774,34 +774,22 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
             }
             DirectionChangeBanner(notice,Modifier.align(Alignment.BottomCenter).padding(bottom=24.dp))}
         }}
-        if(showIntent)ModalBottomSheet(onDismissRequest={showIntent=false},containerColor=Ink,
-            sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
-            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp).navigationBarsPadding(),verticalArrangement=Arrangement.spacedBy(14.dp)) {
-                Text("这次想听什么",fontSize=24.sp,fontWeight=FontWeight.SemiBold)
-                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    FilterChip(!scoreTab,{scoreTab=false},label={Text("选歌条件")})
-                    FilterChip(scoreTab,{scoreTab=true},label={Text("标签分数")})
+        if (showIntent) SheetScaffold(onDismissRequest = { showIntent = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(Space.x6).navigationBarsPadding(),
+                verticalArrangement = Arrangement.spacedBy(Space.x3)) {
+                SectionHeader("这次想听什么", null, "")
+                Row(horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
+                    PlaybackChip("选歌条件", !scoreTab) { scoreTab = false }
+                    PlaybackChip("标签分数", scoreTab) { scoreTab = true }
                 }
-                if(scoreTab) {
+                if (scoreTab) {
                     GenreScorePanel(library)
-                    OutlinedButton(onClick={showScoreReset=true},modifier=Modifier.fillMaxWidth()){Text("清除当前所有分数")}
+                    OutlineButton("清除当前所有分数", { showScoreReset = true }, Modifier.fillMaxWidth())
                 } else {
-                Text("检查歌曲的全部已有标签。想听可多选，避开项优先；条件不会替歌曲添加标签。",fontSize=12.sp,color=Muted,lineHeight=20.sp)
-                val choices=(library.genres.values.flatMap {it.labels}+listOf("pop","rock","folk","jazz","electronic","r&b","hip hop")).distinct().sorted()
-                Text("想听（多选）",fontSize=14.sp)
-                Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {choices.forEach {label ->
-                    FilterChip(selected=label in draftIntent.wanted,onClick={draftIntent=draftIntent.copy(wanted=if(label in draftIntent.wanted)draftIntent.wanted-label else draftIntent.wanted+label,excluded=draftIntent.excluded-label)},
-                        label={Text(genreName(label),fontSize=12.sp)},modifier=Modifier.semantics {contentDescription="想听${genreName(label)}"})
-                }}
-                SettingSwitch("同时满足所有想听标签","关闭时命中任意一个即可；开启时必须全部命中。",draftIntent.matchAll){draftIntent=draftIntent.copy(matchAll=it)}
-                Text("暂时避开（多选）",fontSize=14.sp)
-                Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {choices.forEach {label ->
-                    FilterChip(selected=label in draftIntent.excluded,onClick={draftIntent=draftIntent.copy(excluded=if(label in draftIntent.excluded)draftIntent.excluded-label else draftIntent.excluded+label,wanted=draftIntent.wanted-label)},
-                        label={Text(genreName(label),fontSize=12.sp)},modifier=Modifier.semantics {contentDescription="避开${genreName(label)}"})
-                }}
-                Text("有筛选条件时，未知曲风暂不进入推荐或惊喜抽取。只有“流行”等大类时，仍无法据此区分情绪与节奏。手动从收藏点歌不受这些推荐条件限制。",fontSize=11.sp,color=Muted,lineHeight=19.sp)
-                Button(onClick={onIntent(draftIntent);showIntent=false},modifier=Modifier.fillMaxWidth()){Text("应用并推荐")}
-                TextButton(onClick={onIntent(ListeningIntent());showIntent=false},modifier=Modifier.fillMaxWidth()){Text("清除本次条件")}
+                    IntentEditor(library.genres, draftIntent, { draftIntent = it },
+                        { onIntent(draftIntent); showIntent = false },
+                        { onIntent(ListeningIntent()); showIntent = false })
                 }
             }
         }

@@ -128,5 +128,8 @@ internal fun SheetScaffold(onDismissRequest: () -> Unit, sheetState: SheetState,
     ModalBottomSheet(onDismissRequest, modifier, sheetState, shape = Corners.sheet,
         containerColor = ResonancePalette.ink, contentColor = ResonancePalette.sand,
         dragHandle = { BottomSheetDefaults.DragHandle(color = ResonancePalette.muted) },
-        content = content)
+        content = {
+            val permission = rememberMotionEnvironment()
+            CompositionLocalProvider(LocalResonanceMotion provides permission.enabled) { content() }
+        })
 }
