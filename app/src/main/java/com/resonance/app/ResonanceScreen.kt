@@ -8,6 +8,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -253,6 +254,16 @@ private fun descriptorName(value:String)=when(value){"mood:bright"->"明快";"mo
         }
     }
 }
+@Composable
+private fun TrackGenres(genre: CatalogueGenre?) {
+    val labels = genre?.labels.orEmpty()
+    if (labels.isEmpty()) Text(GenreLookupPolicy.description(genre), color = Muted, fontSize = TypeSize.caption)
+    else CompleteTagRow(labels)
+    if (genre?.descriptors?.isNotEmpty() == true) {
+        Text("曲库线索 · " + genre.descriptors.sorted().joinToString(" · ") { descriptorName(it) },
+            color = Muted, fontSize = TypeSize.caption, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
 @Composable private fun LegacyTrackRow(song:QqCatalogueTrack, labels:Set<String>, onClick:()->Unit, current:Boolean=false, note:String="", genre:CatalogueGenre?=null,onDetails:(()->Unit)?=null) {
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick=onClick).padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
         AlbumCover(song,Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)))
@@ -291,7 +302,8 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
     var unheardOnly by remember {mutableStateOf(false)}
     var discoveryGenre by remember {mutableStateOf<String?>(null)}
     var cooldownSeconds by remember {mutableIntStateOf(settings.getInt("qq_direction_cooldown_seconds",0).takeIf {it in DirectionCooldown.options}?:0)}
-    val listState=rememberLazyListState()
+    val pages = listOf(rememberLazyListState(), rememberLazyListState(), rememberLazyListState(), rememberLazyListState())
+    val listState = pages[tab]
     LaunchedEffect(tab) {listState.scrollToItem(0)}
     var expandedPlayer by remember {mutableStateOf(false)}
     var detailSong by remember {mutableStateOf<QqCatalogueTrack?>(null)}
@@ -323,7 +335,8 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
     val connected=library.accountScope.isNotBlank()
     val motionEnvironment = rememberMotionEnvironment()
     val motionEnabled = motionEnvironment.enabled
-    val homeActive = tab == 0 && !expandedPlayer && detailSong == null && !showIntent && !showScoreReset && feedbackSong == null && !showDirectionHistory
+    val controlsActive = !expandedPlayer && detailSong == null && !showIntent && !showScoreReset && feedbackSong == null && !showDirectionHistory
+    val homeActive = tab == 0 && controlsActive
     val canAnimateBatch = rememberUpdatedState(motionEnabled && homeActive)
     val ticker = remember { FrameTicker() }
     val renderer = remember { HomeSandRenderer() }
@@ -364,8 +377,15 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
         val animate = motionEnabled && homeActive && logoVisible
         logo.update(if (player.playing && animate) 1f else 0f, Motion.LogoRest, Motion.settle, ticker, animate)
     }
-    RunResonanceFrames(ticker, motionEnabled && homeActive,
-        player.playing && (current != null || plateVisible || logoVisible), animatePlate)
+    val browserEntries = rememberDiscoveryEntries(library, discoverySearch, unheardOnly, discoveryGenre, tab == 1)
+    val discoveryGenres = remember(library.discoveries, library.genres) {
+        library.discoveries.flatMap { library.genres[it.mid]?.labels.orEmpty() }.distinct().sorted().chunked(4)
+    }
+    val discoveryLoading by remember(pages[1]) { derivedStateOf { pages[1].partVisible("discovery-loading") } }
+    val animateDiscovery = tab == 1 && controlsActive && discoveryLoading
+    RunResonanceFrames(ticker, motionEnabled && controlsActive,
+        player.playing && (current != null || animatePlate || homeActive && logoVisible) || animateDiscovery,
+        animatePlate || animateDiscovery)
     val hasPlateWork by remember(ticker) { derivedStateOf { ticker.hasSandWork() } }
     MonitorResonanceFrames(ticker, motionEnabled && animatePlate && (player.playing || hasPlateWork) && !ticker.reducedQuality)
     fun refreshBatch(mid: String, count: Int) {
@@ -393,29 +413,22 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
     LaunchedEffect(expandedPlayer,current?.mid,detailSong?.mid) {
         if(connected)(detailSong?.mid?:current?.mid?.takeIf {expandedPlayer})?.let(onRefreshFavorite)
     }
-    val browserEntries=if(tab==1) rememberDiscoveryEntries(library,discoverySearch,unheardOnly,discoveryGenre) else null
     ResonanceTheme { CompositionLocalProvider(LocalResonanceMotion provides motionEnabled) {
         Box(Modifier.fillMaxSize()) {
-        Scaffold(containerColor=if(tab==0) ResonancePalette.ink else Ink,bottomBar={
+        Scaffold(containerColor=ResonancePalette.ink,bottomBar={
             Dock(tab, current, player, clock, seedArtwork, ticker, {tab=it}, {expandedPlayer=true},
                 onPlaybackMode, onToggle, onNext)
         }) {padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
-            LazyColumn(Modifier.fillMaxSize(),state=listState,contentPadding=PaddingValues(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                if(tab==0) item(key = "resonance-logo") {
-                    TopBar(connected, ticker, logo, homeActive && logoVisible) {if(connected) tab=3 else onLogin()}
-                } else item {
-                    Row(Modifier.fillMaxWidth().padding(bottom=6.dp),verticalAlignment=Alignment.CenterVertically) {
-                        Glyph(ResonanceGlyph.WAVE,Modifier.size(23.dp),Accent)
-                        Text(resonanceWordmark, fontSize = 21.sp, fontWeight = FontWeight.SemiBold, lineHeight = 23.sp,
-                            modifier = Modifier.weight(1f).padding(start = 5.dp, end = 8.dp), maxLines = 2)
-                        Row(Modifier.clip(CircleShape).background(Panel).clickable {if(!connected)onLogin() else tab=3}.padding(horizontal=10.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
-                            Box(Modifier.size(5.dp).clip(CircleShape).background(if(connected)Accent else Muted))
-                            Text(if(connected)"QQ 音乐已连接" else "连接 QQ 音乐",fontSize=10.sp,color=Muted,modifier=Modifier.padding(start=6.dp))
-                        }
-                    }
+            Crossfade(tab, animationSpec = if (motionEnabled) tween(Motion.PageFade, easing = Motion.easeInOut) else snap(),
+                label = "primary page") { page ->
+            LazyColumn(Modifier.fillMaxSize(), state = pages[page],
+                contentPadding = PaddingValues(horizontal = Space.x5, vertical = Space.x3),
+                verticalArrangement = Arrangement.spacedBy(Space.x2)) {
+                item(key = "resonance-logo") {
+                    TopBar(connected, ticker, logo, page == 0 && homeActive && logoVisible) { if (connected) tab = 3 else onLogin() }
                 }
-                if(tab==0) {
+                if(page==0) {
                     val refreshSimilar: () -> Unit = { seed?.let { QqLibrary.similar(it.mid) } }
                     item(key = "resonance-plate") {
                         HomePlate(seed, seedCover, renderer, ticker, animatePlate, player.playing,
@@ -470,43 +483,61 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                     if(connected)item {
                         SectionHeader("收藏外候选 · ${library.outsideCount} 首", {tab=1}, "去发现")
                     }
-                } else if(tab==1) {
-                    item {SectionTitle("发现新歌",if(library.discovering)"发现中…" else "发现更多",if(library.discovering)null else onRefreshDiscovery)}
-                    item {OutlinedTextField(discoverySearch,{discoverySearch=it},modifier=Modifier.fillMaxWidth(),singleLine=true,
-                        placeholder={Text("搜索发现里的歌曲、歌手",fontSize=12.sp)},leadingIcon={Glyph(ResonanceGlyph.SEARCH,Modifier.size(19.dp),Muted)},shape=RoundedCornerShape(15.dp))}
+                } else if(page==1) {
+                    item { SectionHeader("发现新歌", onRefreshDiscovery.takeUnless { library.discovering },
+                        if (library.discovering) "发现中…" else "发现更多") }
+                    item { SearchField(discoverySearch, { discoverySearch = it }, "搜索发现里的歌曲、歌手") }
                     item {
-                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
-                            FilterChip(selected=unheardOnly,onClick={unheardOnly=!unheardOnly},label={Text("本机未听",fontSize=12.sp)})
-                            TextButton(onClick={draftIntent=library.intent;scoreTab=false;showIntent=true}){
-                                Text(if(library.intent.active)"调整已选条件" else "选歌条件",fontSize=12.sp)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.x2),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            PlaybackChip("本机未听", unheardOnly) { unheardOnly = !unheardOnly }
+                            PlaybackChip("全部曲风", discoveryGenre == null) { discoveryGenre = null }
+                            Spacer(Modifier.weight(1f))
+                            TextAction(if (library.intent.active) "调整已选条件" else "选歌条件",
+                                { draftIntent = library.intent; scoreTab = false; showIntent = true }, Accent)
+                        }
+                    }
+                    items(discoveryGenres, key = { "genre-grid-${it.first()}" }) { row ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
+                            row.forEach { label ->
+                                GenreTile(genreName(label), label, discoveryGenre == label, { discoveryGenre = label }, Modifier.weight(1f))
                             }
+                            repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
                         }
                     }
-                    item {Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected=discoveryGenre==null,onClick={discoveryGenre=null},label={Text("全部曲风",fontSize=11.sp)})
-                        library.discoveries.flatMap {library.genres[it.mid]?.labels.orEmpty()}.distinct().sorted().forEach {label ->
-                            FilterChip(selected=discoveryGenre==label,onClick={discoveryGenre=label},label={Text(genreName(label),fontSize=11.sp)})
+                    val entries = browserEntries.orEmpty()
+                    if (entries.isNotEmpty()) item {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("${entries.size} 首可浏览", fontSize = TypeSize.secondary, color = Muted, modifier = Modifier.weight(1f))
+                            PrimaryButton(if (entries.size > 100) "播放前 100 首" else "播放这批",
+                                { onPlayDiscovery(entries.take(100).map { it.song.mid }, null) })
                         }
-                    }}
-                    val entries=browserEntries.orEmpty()
-                    item {Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                        Text(if(browserEntries==null && connected) "正在整理候选…" else "${entries.size} 首可浏览",
-                            fontSize=12.sp,color=Muted,modifier=Modifier.weight(1f))
-                        if(entries.isNotEmpty()) Button(onClick={onPlayDiscovery(entries.take(100).map {it.song.mid},null)}) {
-                            Text(if(entries.size>100)"播放前 100 首" else "播放这批",fontSize=12.sp)
-                        }
-                    }}
-                    if(entries.isEmpty() && (browserEntries!=null || !connected))item {Text(if(!connected)"连接 QQ 音乐后自动发现新歌。" else if(library.discovering)"正在寻找候选，稍后就会出现。" else
-                        "暂无符合条件的新歌，可清除筛选或点“发现更多”。",color=Muted,fontSize=13.sp,modifier=Modifier.padding(vertical=18.dp))}
-                    items(entries,key={it.song.mid}) {entry ->
-                        LegacyTrackRow(entry.song,library.genres[entry.song.mid]?.labels.orEmpty(),{
-                            val index=entries.indexOfFirst {it.song.mid==entry.song.mid}
-                            val window=entries.drop((index-10).coerceAtLeast(0)).take(100)
-                            onPlayDiscovery(window.map {it.song.mid},entry.song.mid)
-                        },entry.song.mid==player.mid,note=entry.song.artist + if(entry.locallyHeard)" · 本机有记录" else "",genre=library.genres[entry.song.mid],onDetails={detailSong=entry.song})
-                        Text(entry.reason,color=Muted,fontSize=10.sp,lineHeight=17.sp,modifier=Modifier.padding(start=65.dp,bottom=8.dp))
                     }
-                } else if(tab==2) {
+                    if (entries.isEmpty()) when {
+                        !connected -> item { EmptyState("连接 QQ 音乐后自动发现新歌。", "连接 QQ 音乐", onLogin) }
+                        browserEntries == null || library.discovering -> item(key = "discovery-loading") {
+                            LoadingState(if (library.discovering) "正在寻找候选，稍后就会出现。" else "正在整理候选…",
+                                ticker, animateDiscovery)
+                        }
+                        library.discoveryMessage.contains("失败") -> item {
+                            ErrorState("发现新歌", library.discoveryMessage, "发现更多", onRefreshDiscovery)
+                        }
+                        else -> item { EmptyState("暂无符合条件的新歌，可清除筛选或点“发现更多”。", "发现更多", onRefreshDiscovery) }
+                    }
+                    if (entries.isNotEmpty() && library.discoveryMessage.contains("失败")) item {
+                        ErrorState("发现新歌", library.discoveryMessage, "发现更多", onRefreshDiscovery)
+                    }
+                    items(entries, key = { it.song.mid }) { entry ->
+                        val song = entry.song
+                        val genre = library.genres[song.mid]
+                        TrackRow(song, entry.reason, song.mid == player.mid, {
+                            val index = entries.indexOfFirst { it.song.mid == song.mid }
+                            val window = entries.drop((index - 10).coerceAtLeast(0)).take(100)
+                            onPlayDiscovery(window.map { it.song.mid }, song.mid)
+                        }, { detailSong = song }, subtitle = song.artist + if (entry.locallyHeard) " · 本机有记录" else "",
+                            detailsButton = true) { TrackGenres(genre) }
+                    }
+                } else if(page==2) {
                     item {SectionTitle(library.openedPlaylist?.name ?: "我的收藏",
                         if(library.openedPlaylist!=null)"返回收藏" else if(library.syncing)"同步中…" else "同步收藏",
                         {if(library.openedPlaylist!=null) QqLibrary.closePlaylist() else onSync()})}
@@ -618,6 +649,7 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                     if(connected)item {TextButton(onClick=onLogout) {Text("退出 QQ 音乐账号",color=ResonancePalette.signal,fontSize=12.sp)}}
                     item {Text("RESONANCE · 共鸣 ${BuildConfig.VERSION_NAME}",color=Muted.copy(alpha=.5f),fontSize=10.sp,letterSpacing=1.5.sp,modifier=Modifier.padding(vertical=18.dp))}
                 }
+            }
             }
             DirectionChangeBanner(notice, Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp))
             }
@@ -898,13 +930,13 @@ private fun directionStateName(state:String)=when(state){"PLAYING"->"已确认�
 }
 @Composable
 private fun rememberDiscoveryEntries(
-    library: LibraryState, search: String, unheardOnly: Boolean, genre: String?
+    library: LibraryState, search: String, unheardOnly: Boolean, genre: String?, active: Boolean
 ): List<DiscoveryEntry>? {
     val input = remember(library.favorites, library.discoveries, library.genres, library.listening,
         library.scoreSignals, library.manualScores, library.discoverySources, library.intent) { library }
     return key(library.accountScope, library.intent, search, unheardOnly, genre) {
         var entries by remember { mutableStateOf<List<DiscoveryEntry>?>(null) }
-        LaunchedEffect(input) {
+        if (active) LaunchedEffect(input) {
             entries = withContext(Dispatchers.Default) { DiscoveryBrowser.entries(input, search, unheardOnly, genre) }
         }
         entries

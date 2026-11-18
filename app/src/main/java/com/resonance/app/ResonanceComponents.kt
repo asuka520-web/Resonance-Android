@@ -23,6 +23,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -40,10 +41,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -270,7 +273,9 @@ internal fun SectionHeader(title: String, onAction: (() -> Unit)?, action: Strin
 @Composable
 internal fun TrackRow(
     song: QqCatalogueTrack, reason: String, current: Boolean, onPlay: () -> Unit, onDetails: () -> Unit,
-    unfamiliar: Boolean = false, ticker: FrameTicker? = null, batch: BatchSandMotion? = null, row: Int = 0
+    unfamiliar: Boolean = false, ticker: FrameTicker? = null, batch: BatchSandMotion? = null, row: Int = 0,
+    subtitle: String = "", detailsButton: Boolean = false,
+    supporting: @Composable ColumnScope.() -> Unit = {}
 ) {
     Row(Modifier.fillMaxWidth().heightIn(min = 68.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -285,13 +290,19 @@ internal fun TrackRow(
             }
             Column(Modifier.weight(1f).padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 ResonanceText(song.name, 16, color = if (current) ResonancePalette.signal else ResonancePalette.sand, weight = FontWeight.Bold, english = true)
-                ResonanceText(if (unfamiliar) "新歌候选 · ${song.artist}" else song.artist, 12,
+                ResonanceText(subtitle.ifBlank { if (unfamiliar) "新歌候选 · ${song.artist}" else song.artist }, 12,
                     color = ResonancePalette.muted, english = true)
-                if (reason.isNotBlank()) ResonanceText(reason, 12, color = ResonancePalette.signal, english = true)
+                supporting()
+                if (reason.isNotBlank()) ResonanceText(reason, 12, color = ResonancePalette.signal,
+                    english = true, lines = if (detailsButton) 3 else 1)
             }
         }
-        IconAction("播放 ${song.name}", onPlay, ResonancePalette.sand, outline = true) {
-            Glyph(ResonanceGlyph.PLAY, Modifier.size(20.dp), ResonancePalette.sand)
+        if (detailsButton) {
+            IconAction("${song.name}的歌曲详情", onDetails, ResonancePalette.sand, outline = true) {
+                Glyph(ResonanceGlyph.DETAILS, Modifier.size(Space.x4), ResonancePalette.sand)
+            }
+        } else IconAction("播放 ${song.name}", onPlay, ResonancePalette.sand, outline = true) {
+            Glyph(ResonanceGlyph.PLAY, Modifier.size(Space.x5), ResonancePalette.sand)
         }
     }
 }
@@ -313,7 +324,7 @@ internal fun Dock(
         if (song != null) {
             Canvas(Modifier.fillMaxWidth().height(2.dp)) {
                 val frame = clock.value
-                val advancing = tab == 0 && animate && player.playing
+                val advancing = animate && player.playing
                 val progress = if (frame.mid == song.mid && player.durationMs > 0)
                     (playhead.position(song.mid, frame.positionMs, if (advancing) ticker.time else 0L, advancing) /
                         player.durationMs).coerceIn(0f, 1f) else 0f
@@ -482,5 +493,40 @@ internal fun ErrorState(title: String, message: String, action: String? = null, 
         Text(title, fontSize = TypeSize.track, color = ResonancePalette.signal, fontWeight = FontWeight.Bold)
         if (message.isNotBlank()) Text(message, fontSize = TypeSize.secondary, color = ResonancePalette.muted)
         if (action != null && onAction != null) OutlineButton(action, onAction)
+    }
+}
+
+@Composable
+internal fun SearchField(value: String, onValueChange: (String) -> Unit, hint: String) {
+    var focused by remember { mutableStateOf(false) }
+    val border = if (focused) Modifier.border(Space.focus, ResonancePalette.sand, Corners.search) else Modifier
+    BasicTextField(value, onValueChange,
+        modifier = Modifier.fillMaxWidth().heightIn(min = Space.touch).onFocusChanged { focused = it.isFocused }
+            .clip(Corners.search).background(ResonancePalette.surface).then(border)
+            .semantics { contentDescription = hint },
+        singleLine = true, cursorBrush = SolidColor(ResonancePalette.signal),
+        textStyle = resonanceTextStyle(TypeSize.body, FontWeight.Medium, true).copy(color = ResonancePalette.sand),
+        decorationBox = { field ->
+            Row(Modifier.padding(horizontal = Space.x4, vertical = Space.x3),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
+                Glyph(ResonanceGlyph.SEARCH, Modifier.size(Space.x5), ResonancePalette.muted)
+                Box(Modifier.weight(1f)) {
+                    if (value.isEmpty()) Text(hint, fontSize = TypeSize.action, color = ResonancePalette.muted)
+                    field()
+                }
+            }
+        })
+}
+
+@Composable
+internal fun GenreTile(label: String, seed: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val interaction = remember { MutableInteractionSource() }
+    val selectedLine = if (selected) Modifier.border(Space.focus, ResonancePalette.signal, Corners.cover) else Modifier
+    Column(modifier.heightIn(min = Space.touch).selectable(selected, interaction, LocalIndication.current, role = Role.Button,
+        onClick = onClick).resonancePress(interaction),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.x1)) {
+        SandPlate("genre:$seed", Modifier.fillMaxWidth().aspectRatio(1f).then(selectedLine), density = .55f)
+        Text(label, color = if (selected) ResonancePalette.signal else ResonancePalette.sand,
+            fontSize = TypeSize.caption, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
