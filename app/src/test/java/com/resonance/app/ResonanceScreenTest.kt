@@ -67,13 +67,15 @@ class ResonanceScreenTest {
         assertEquals("testA",selected)
         capture("library-test-data")
     }
-    @Test fun connectedHomeRetainsMiniPlayerAndShowsActualCoverageCounts() {
+    @Test fun connectedHomePutsListeningActionsAndScoresAboveTheFold() {
         val songs=listOf("晚风经过","此刻的温柔","下一站晴天").mapIndexed {i,name -> QqCatalogueTrack("test$i","test$i",name,"测试歌手","测试专辑",200000)}
         val labels=listOf("pop","r&b","jazz")
         val genres=songs.mapIndexed {i,song -> song.mid to CatalogueGenre(song.mid,setOf(labels[i]),"qq-song-detail","test fixture",0,Long.MAX_VALUE)}.toMap()
         show(LibraryState(accountScope="test-only",favorites=songs,genres=genres),PlayerStatus(mid="test0",playing=true,positionMs=50000,durationMs=200000))
-        compose.onNodeWithText("100%").performScrollTo().assertIsDisplayed()
-        compose.onAllNodesWithText("晚风经过").onFirst().assertIsDisplayed()
+        compose.onNodeWithText("相似推荐").assertIsDisplayed()
+        compose.onNodeWithText("随心听").assertIsDisplayed()
+        compose.onNodeWithText("当前标签分数").assertIsDisplayed()
+        compose.onNodeWithContentDescription("播放或暂停").assertIsDisplayed()
         capture("home-connected-test-data")
     }
     @Test fun openedPlaylistExposesSongsOutsideFavoritesForPlayback() {
@@ -94,6 +96,7 @@ class ResonanceScreenTest {
         compose.setContent {ResonanceScreen(LibraryState(accountScope="test",favorites=songs,genres=genres),PlayerStatus(),
             {},{},{},{},{},{},{},{},{},{},{},onRetryMissing={retried=true})}
         compose.onNodeWithText("收藏",useUnmergedTree=true).performClick()
+        compose.onNodeWithText("管理").performClick()
         compose.onNodeWithText("已有曲风 1 · 等待查询 1\n待重试 1 · 暂无资料 1").assertIsDisplayed()
         compose.onNodeWithText("重试未取得曲风").performClick()
         assertTrue(retried)
@@ -141,6 +144,7 @@ class ResonanceScreenTest {
         compose.setContent {ResonanceScreen(LibraryState(accountScope="test",favorites=listOf(song),analyzing=true),PlayerStatus(),
             {},{},{},{},{},{},{},{},{},{},{},onSupplementMissing={secondary=true})}
         compose.onNodeWithText("收藏",useUnmergedTree=true).performClick()
+        compose.onNodeWithText("管理").performClick()
         compose.onNodeWithText("重试未取得曲风").assertIsEnabled()
         compose.onNodeWithText("换来源补齐").performClick()
         assertTrue(secondary)
@@ -222,7 +226,7 @@ class ResonanceScreenTest {
         compose.setContent {ResonanceScreen(LibraryState(accountScope="test",discoveries=listOf(song),favoriteStates=mapOf("heart" to true)),PlayerStatus(mid="heart"),
             {},{},{},{},{},{},{},{},{},{},{},onFavorite={toggled=it},onRefreshFavorite={refreshed=it})}
         compose.onAllNodesWithText("收藏测试歌").onLast().performClick()
-        compose.onNodeWithText("已喜欢 · 取消收藏").performClick()
+        compose.onNodeWithContentDescription("已喜欢 · 取消收藏").performClick()
         assertEquals("heart",toggled);assertEquals("heart",refreshed)
     }
     @Test fun directionHistoryExposesConfirmedTargetAndUnconfirmedAttempt() {

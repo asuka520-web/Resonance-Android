@@ -1,11 +1,11 @@
 <resources>
-    <color name="resonance_icon_background">#111610</color>
+    <color name="resonance_icon_background">#111119</color>
     <style name="ResonanceApp" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:windowBackground">#111610</item>
-        <item name="android:colorAccent">#CEFA8D</item>
-        <item name="android:statusBarColor">#111610</item>
-        <item name="android:navigationBarColor">#111610</item>
+        <item name="android:windowBackground">@color/resonance_icon_background</item>
+        <item name="android:colorAccent">#D8C5FF</item>
+        <item name="android:statusBarColor">@color/resonance_icon_background</item>
+        <item name="android:navigationBarColor">@color/resonance_icon_background</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>

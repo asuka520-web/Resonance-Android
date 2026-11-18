@@ -91,7 +91,7 @@ class QqAccountActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT), navigationBarStyle = SystemBarStyle.dark(0xFF111610.toInt()))
+        enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT), navigationBarStyle = SystemBarStyle.dark(ResonanceBackgroundArgb.toInt()))
         refreshAccount()
         setContent {
             var library by remember { mutableStateOf(QqLibrary.state) }

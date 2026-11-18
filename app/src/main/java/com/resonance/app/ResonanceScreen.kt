@@ -10,6 +10,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -17,6 +18,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -41,6 +44,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
@@ -55,20 +60,23 @@ import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URI
 
-private val Ink = Color(0xFF111610)
-private val Panel = Color(0xFF1C231B)
-private val Muted = Color(0xFF9AA393)
-private val Lime = Color(0xFFCEFA8D)
-private val Cream = Color(0xFFF5F5E9)
-private val SoftLine = Color(0xFF303A2C)
+internal const val ResonanceBackgroundArgb = 0xFF111119
+private val Ink = Color(ResonanceBackgroundArgb)
+private val Panel = Color(0xFF1B1B26)
+private val Raised = Color(0xFF272638)
+private val Selected = Color(0xFF342A49)
+private val Muted = Color(0xFFB0ADBF)
+private val Accent = Color(0xFFD8C5FF)
+private val Cream = Color(0xFFF5F1FA)
+private val SoftLine = Color(0xFF363446)
 
 @Composable
 fun ResonanceTheme(content: @Composable () -> Unit) = MaterialTheme(
-    colorScheme = darkColorScheme(primary = Lime, onPrimary = Ink, background = Ink, onBackground = Cream,
-        surface = Panel, onSurface = Cream, secondary = Lime, outline = SoftLine,
-        primaryContainer = Color(0xFF35452B), onPrimaryContainer = Lime,
-        secondaryContainer = Color(0xFF35452B), onSecondaryContainer = Lime,
-        surfaceVariant = Color(0xFF252E22), onSurfaceVariant = Muted), content = content)
+    colorScheme = darkColorScheme(primary = Accent, onPrimary = Ink, background = Ink, onBackground = Cream,
+        surface = Panel, onSurface = Cream, secondary = Accent, outline = SoftLine,
+        primaryContainer = Selected, onPrimaryContainer = Accent,
+        secondaryContainer = Selected, onSecondaryContainer = Accent,
+        surfaceVariant = Raised, onSurfaceVariant = Muted), content = content)
 
 enum class ResonanceGlyph { PLAY, PAUSE, NEXT, PREVIOUS, HOME, LIBRARY, PERSON, SEARCH, HEART, BACK, CLOSE, REFRESH, WAVE, DETAILS }
 
@@ -120,13 +128,13 @@ fun AlbumCover(song: QqCatalogueTrack?, modifier: Modifier = Modifier) {
             } catch(_:Exception){null}
         }
     }
-    Box(modifier.background(Brush.linearGradient(listOf(Color(0xFF3D5138),Color(0xFF252C22)))),contentAlignment=Alignment.Center) {
+    Box(modifier.background(Brush.linearGradient(listOf(Color(0xFF504263),Color(0xFF2A2940)))),contentAlignment=Alignment.Center) {
         if(bitmap!=null) Image(bitmap!!,null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
         else Canvas(Modifier.fillMaxSize().padding(8.dp)) {
             val r=size.minDimension*.4f
-            drawCircle(Color(0xFF121A11),r)
+            drawCircle(Ink,r)
             for(i in 1..4)drawCircle(Color.White.copy(alpha=.075f),r*(.3f+i*.13f),style=Stroke(1.2f))
-            drawCircle(Lime.copy(alpha=.8f),r*.22f)
+            drawCircle(Accent.copy(alpha=.85f),r*.22f)
             drawCircle(Ink,r*.045f)
         }
     }
@@ -135,11 +143,83 @@ private fun genreName(value: String) = when(value) {
     "pop"->"流行";"rock"->"摇滚";"folk"->"民谣";"jazz"->"爵士";"electronic"->"电子";"hip hop"->"说唱";
     "r&b"->"R&B";"classical"->"古典";"soul"->"灵魂乐";"funk"->"放克";"country"->"乡村";"metal"->"金属";else->value
 }
+
+@Composable
+private fun ListeningCard(connected: Boolean, seed: QqCatalogueTrack?, onLogin: () -> Unit, onSimilar: () -> Unit) {
+    val shape = RoundedCornerShape(22.dp)
+    Row(
+        Modifier.fillMaxWidth().clip(shape).background(Brush.linearGradient(listOf(Selected, Panel)))
+            .border(1.dp, SoftLine, shape).padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        AlbumCover(seed, Modifier.size(88.dp).clip(RoundedCornerShape(12.dp)))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (connected && seed != null) {
+                Text(seed.name, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(seed.artist, fontSize = 12.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            } else {
+                Text(if (connected) "收藏同步后可听相似推荐" else "从你的收藏开始",
+                    fontSize = 17.sp, fontWeight = FontWeight.SemiBold, lineHeight = 23.sp)
+            }
+            if (!connected || seed != null) {
+                Button(onClick = if (connected) onSimilar else onLogin, contentPadding = PaddingValues(horizontal = 14.dp)) {
+                    Text(if (connected) "相似推荐" else "连接我的 QQ 音乐", fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MiniPlayer(
+    song: QqCatalogueTrack,
+    player: PlayerStatus,
+    onExpand: () -> Unit,
+    onMode: (String) -> Unit,
+    onPrevious: () -> Unit,
+    onToggle: () -> Unit,
+    onNext: () -> Unit
+) {
+    val mode = PlaybackMode.parse(player.playbackMode)
+    val progress = if (player.durationMs > 0) (player.positionMs.toFloat() / player.durationMs).coerceIn(0f, 1f) else 0f
+    val shape = RoundedCornerShape(16.dp)
+    Column(Modifier.padding(horizontal = 12.dp, vertical = 5.dp).fillMaxWidth().clip(shape)
+        .background(Raised).border(1.dp, SoftLine, shape)) {
+        Box(Modifier.fillMaxWidth().height(2.dp).background(SoftLine)) {
+            Box(Modifier.fillMaxWidth(progress).fillMaxHeight().background(Accent))
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.weight(1f).heightIn(min = 48.dp).clickable(onClickLabel = "展开播放器", onClick = onExpand),
+                verticalAlignment = Alignment.CenterVertically) {
+                AlbumCover(song, Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)))
+                Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                    Text(song.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    val subtitle = when {
+                        player.loading -> "正在连接音源…"
+                        player.message.contains("无法") -> player.message
+                        else -> song.artist
+                    }
+                    Text(subtitle, color = Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            Box(Modifier.sizeIn(minWidth = 42.dp, minHeight = 48.dp).clickable {onMode(mode.next().name)}
+                .semantics {contentDescription = "播放模式：${mode.label}，点按切换"}, contentAlignment = Alignment.Center) {
+                Text(mode.shortLabel, color = Accent, fontSize = 10.sp)
+            }
+            CircleAction(ResonanceGlyph.PREVIOUS, "上一首", onPrevious, size = 44)
+            CircleAction(if (player.playing || (player.loading && player.playRequested)) ResonanceGlyph.PAUSE else ResonanceGlyph.PLAY,
+                "播放或暂停", onToggle, accent = true, size = 44)
+            CircleAction(ResonanceGlyph.NEXT, "下一首", onNext, size = 44)
+        }
+    }
+}
+
 private fun descriptorName(value:String)=when(value){"mood:bright"->"明快";"mood:sad"->"低落";"mood:calm"->"舒缓";"mood:energetic"->"活力";
     "instrument:piano"->"钢琴";"instrument:guitar"->"吉他";"instrument:violin"->"小提琴";"instrument:saxophone"->"萨克斯";"voice:instrumental"->"器乐";else->value}
 @Composable private fun TinyTag(text:String, active:Boolean=false) {
-    Text(text, color=if(active)Lime else Muted, fontSize=10.sp,
-        modifier=Modifier.clip(RoundedCornerShape(6.dp)).background(if(active)Color(0xFF35452B) else Color(0xFF272F24)).padding(horizontal=7.dp,vertical=4.dp))
+    Text(text, color=if(active)Accent else Muted, fontSize=10.sp,
+        modifier=Modifier.clip(RoundedCornerShape(6.dp)).background(if(active)Selected else Raised).padding(horizontal=7.dp,vertical=4.dp))
 }
 @Composable private fun SectionTitle(title:String, detail:String="", action:(()->Unit)?=null) {
     Row(Modifier.fillMaxWidth().padding(top=12.dp,bottom=9.dp),verticalAlignment=Alignment.CenterVertically) {
@@ -148,7 +228,7 @@ private fun descriptorName(value:String)=when(value){"mood:bright"->"明快";"mo
     }
 }
 @Composable private fun CircleAction(type:ResonanceGlyph,label:String,onClick:()->Unit,accent:Boolean=false,size:Int=44) {
-    Box(Modifier.size(size.dp).clip(CircleShape).background(if(accent)Lime else Color.Transparent).clickable(onClick=onClick)
+    Box(Modifier.size(size.dp).clip(CircleShape).background(if(accent)Accent else Color.Transparent).clickable(onClick=onClick)
         .semantics {contentDescription=label},contentAlignment=Alignment.Center) {
         Glyph(type,Modifier.size((size*.52f).dp),if(accent)Ink else Cream)
     }
@@ -157,18 +237,18 @@ private fun descriptorName(value:String)=when(value){"mood:bright"->"明快";"mo
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick=onClick).padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
         AlbumCover(song,Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)))
         Column(Modifier.weight(1f).padding(horizontal=13.dp),verticalArrangement=Arrangement.spacedBy(5.dp)) {
-            Text(song.name,maxLines=1,overflow=TextOverflow.Ellipsis,color=if(current)Lime else Cream,fontSize=15.sp,fontWeight=FontWeight.Medium)
+            Text(song.name,maxLines=1,overflow=TextOverflow.Ellipsis,color=if(current)Accent else Cream,fontSize=15.sp,fontWeight=FontWeight.Medium)
             Text(note.ifBlank {song.artist},maxLines=1,overflow=TextOverflow.Ellipsis,color=Muted,fontSize=12.sp)
             if(labels.isEmpty()) Text(GenreLookupPolicy.description(genre),color=Muted,fontSize=10.sp)
             else CompleteTagRow(labels)
             if(genre?.descriptors?.isNotEmpty()==true)Text("曲库线索 · "+genre.descriptors.sorted().joinToString(" · "){descriptorName(it)},color=Muted,fontSize=10.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
         }
         if(onDetails!=null)CircleAction(ResonanceGlyph.DETAILS,"${song.name}的歌曲详情",onDetails,size=32)
-        Glyph(if(current)ResonanceGlyph.WAVE else ResonanceGlyph.PLAY,Modifier.padding(start=12.dp,end=4.dp).size(21.dp),if(current)Lime else Muted)
+        Glyph(if(current)ResonanceGlyph.WAVE else ResonanceGlyph.PLAY,Modifier.padding(start=12.dp,end=4.dp).size(21.dp),if(current)Accent else Muted)
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit, onSync:()->Unit,
     onPlay:(QqCatalogueTrack)->Unit, onToggle:()->Unit, onNext:()->Unit, onPrevious:()->Unit, onSeek:(Float)->Unit,
@@ -184,6 +264,7 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
     var tab by remember {mutableIntStateOf(0)}
     var search by remember {mutableStateOf("")}
     var filter by remember {mutableIntStateOf(0)}
+    var showCatalogueDetails by remember {mutableStateOf(false)}
     var discoverySearch by remember {mutableStateOf("")}
     var unheardOnly by remember {mutableStateOf(false)}
     var discoveryGenre by remember {mutableStateOf<String?>(null)}
@@ -205,7 +286,8 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
     var showDirectionHistory by remember {mutableStateOf(false)}
     var previewNotice by remember {mutableStateOf<DirectionNotice?>(null)}
     var draftIntent by remember {mutableStateOf(ListeningIntent())}
-    var sources by remember {mutableStateOf(false)}
+    var showRecommendationReason by remember {mutableStateOf(false)}
+    var showConnectionDetails by remember {mutableStateOf(false)}
     var autoDirection by remember {mutableStateOf(settings.getBoolean("qq_auto_direction",true))}
     var supplements by remember {mutableStateOf(settings.getBoolean("catalogue_external_tags",true))}
     var surpriseEnabled by remember {mutableStateOf(settings.getBoolean("qq_surprise_enabled",true))}
@@ -223,130 +305,97 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
         Box(Modifier.fillMaxSize()) {
         Scaffold(containerColor=Ink,bottomBar={
             Column(Modifier.background(Ink)) {
-                if(current!=null) {
-                    Row(Modifier.padding(horizontal=16.dp,vertical=8.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Panel)
-                        .clickable {expandedPlayer=true}.padding(9.dp),verticalAlignment=Alignment.CenterVertically) {
-                        AlbumCover(current,Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)))
-                        Column(Modifier.weight(1f).padding(horizontal=11.dp)) {
-                            Text(current.name,maxLines=1,overflow=TextOverflow.Ellipsis,fontSize=13.sp,fontWeight=FontWeight.SemiBold)
-                            Text(if(player.loading)"正在连接音源…" else if(player.message.contains("无法")) player.message else current.artist,color=Muted,fontSize=11.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
-                        }
-                        Text(PlaybackMode.parse(player.playbackMode).shortLabel,color=Muted,fontSize=10.sp,
-                            modifier=Modifier.clickable {onPlaybackMode(PlaybackMode.parse(player.playbackMode).next().name)}
-                                .semantics {contentDescription="播放模式：${PlaybackMode.parse(player.playbackMode).label}，点按切换"}.padding(6.dp))
-                        CircleAction(ResonanceGlyph.PREVIOUS,"上一首",onPrevious,false,32)
-                        CircleAction(if(player.playing || (player.loading && player.playRequested))ResonanceGlyph.PAUSE else ResonanceGlyph.PLAY,"播放或暂停",onToggle,true,36)
-                        CircleAction(ResonanceGlyph.NEXT,"下一首",onNext,false,36)
-                    }
-                }
-                Row(Modifier.fillMaxWidth().navigationBarsPadding().height(66.dp),horizontalArrangement=Arrangement.SpaceAround) {
+                if(current!=null) MiniPlayer(current,player,{expandedPlayer=true},onPlaybackMode,onPrevious,onToggle,onNext)
+                Row(Modifier.fillMaxWidth().navigationBarsPadding().heightIn(min=58.dp).selectableGroup(),
+                    horizontalArrangement=Arrangement.SpaceAround) {
                     listOf("为你" to ResonanceGlyph.HOME,"发现" to ResonanceGlyph.SEARCH,"收藏" to ResonanceGlyph.LIBRARY,"我的" to ResonanceGlyph.PERSON).forEachIndexed {i,item ->
-                        Column(Modifier.weight(1f).fillMaxHeight().clickable {tab=i}.padding(top=8.dp),horizontalAlignment=Alignment.CenterHorizontally,
+                        val active=tab==i
+                        Column(Modifier.weight(1f).selectable(active,role=Role.Tab,onClick={tab=i}).padding(vertical=5.dp),horizontalAlignment=Alignment.CenterHorizontally,
                             verticalArrangement=Arrangement.spacedBy(4.dp)) {
-                            Glyph(item.second,Modifier.size(23.dp),if(tab==i)Lime else Muted)
-                            Text(item.first,fontSize=10.sp,color=if(tab==i)Lime else Muted)
+                            Box(Modifier.size(width=46.dp,height=27.dp).clip(CircleShape).background(if(active)Selected else Color.Transparent),
+                                contentAlignment=Alignment.Center) {
+                                Glyph(item.second,Modifier.size(20.dp),if(active)Accent else Muted)
+                            }
+                            Text(item.first,fontSize=11.sp,color=if(active)Accent else Muted)
                         }
                     }
                 }
             }
         }) {padding ->
-            LazyColumn(Modifier.fillMaxSize().padding(padding),state=listState,contentPadding=PaddingValues(horizontal=22.dp,vertical=18.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            LazyColumn(Modifier.fillMaxSize().padding(padding),state=listState,contentPadding=PaddingValues(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                 item {
-                    Row(Modifier.fillMaxWidth().padding(bottom=14.dp),verticalAlignment=Alignment.CenterVertically) {
-                        Glyph(ResonanceGlyph.WAVE,Modifier.size(31.dp),Lime)
-                        Text("共鸣",fontSize=25.sp,fontWeight=FontWeight.Bold,letterSpacing=2.sp,modifier=Modifier.padding(start=8.dp))
+                    Row(Modifier.fillMaxWidth().padding(bottom=6.dp),verticalAlignment=Alignment.CenterVertically) {
+                        Glyph(ResonanceGlyph.WAVE,Modifier.size(27.dp),Accent)
+                        Text("共鸣",fontSize=23.sp,fontWeight=FontWeight.SemiBold,letterSpacing=1.sp,modifier=Modifier.padding(start=6.dp))
                         Spacer(Modifier.weight(1f))
                         Row(Modifier.clip(CircleShape).background(Panel).clickable {if(!connected)onLogin() else tab=3}.padding(horizontal=12.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
-                            Box(Modifier.size(5.dp).clip(CircleShape).background(if(connected)Lime else Muted))
+                            Box(Modifier.size(5.dp).clip(CircleShape).background(if(connected)Accent else Muted))
                             Text(if(connected)"QQ 音乐已连接" else "连接 QQ 音乐",fontSize=10.sp,color=Muted,modifier=Modifier.padding(start=6.dp))
                         }
                     }
                 }
                 if(tab==0) {
                     item {
-                        Text("今天，想听什么。",fontSize=29.sp,fontWeight=FontWeight.SemiBold,letterSpacing=(-.7).sp)
-                        Text("熟悉的喜欢，也有下一次心动。",color=Muted,fontSize=13.sp,modifier=Modifier.padding(top=9.dp,bottom=14.dp))
-                    }
-                    if(connected)item {
-                        GenreScoreSummary(library,{scoreTab=true;showIntent=true},{showScoreReset=true})
-                    }
-                    item {
-                        Box(Modifier.fillMaxWidth().height(205.dp).clip(RoundedCornerShape(25.dp))
-                            .background(Brush.linearGradient(listOf(Color(0xFF3E5034),Color(0xFF232F22))))) {
-                            AlbumCover(seed,Modifier.align(Alignment.CenterEnd).padding(end=18.dp).size(122.dp).clip(CircleShape))
-                            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color(0xFF34452D),Color(0xFF34452D).copy(alpha=.88f),Color.Transparent))))
-                            Column(Modifier.padding(23.dp).fillMaxHeight(),verticalArrangement=Arrangement.SpaceBetween) {
-                                Text("RESONANCE  /  为你而来",color=Lime,fontSize=10.sp,letterSpacing=1.8.sp)
-                                Text(if(connected)"从你喜欢的歌，\n听见新的可能。" else "把喜欢的歌，\n带到这里。",fontSize=23.sp,fontWeight=FontWeight.Medium,lineHeight=33.sp)
-                                Button(onClick={if(!connected)onLogin() else seed?.let {QqLibrary.similar(it.mid)}},
-                                    contentPadding=PaddingValues(horizontal=16.dp,vertical=8.dp),colors=ButtonDefaults.buttonColors(containerColor=Lime,contentColor=Ink)) {
-                                    Text(if(connected)"相似推荐" else "连接我的 QQ 音乐",fontSize=12.sp,fontWeight=FontWeight.SemiBold)
-                                }
-                            }
-                        }
-                    }
-                    if(connected) item {
-                        Row(Modifier.fillMaxWidth().padding(top=10.dp,bottom=5.dp),horizontalArrangement=Arrangement.SpaceBetween) {
-                            listOf(library.favorites.size.toString() to "收藏歌曲",library.taggedCount.toString() to "曲风资料",
-                                (if(library.favorites.isEmpty())"0%" else "${library.taggedCount*100/library.favorites.size}%") to "资料覆盖").forEach { metric ->
-                                Column(verticalArrangement=Arrangement.spacedBy(5.dp)) {Text(metric.first,fontSize=23.sp,fontWeight=FontWeight.Medium);Text(metric.second,color=Muted,fontSize=10.sp)}
-                            }
-                        }
+                        ListeningCard(connected,seed,onLogin,{seed?.let {QqLibrary.similar(it.mid)}})
                     }
                     if(library.syncing || library.analyzing) item {
-                        LinearProgressIndicator(modifier=Modifier.fillMaxWidth().height(2.dp),color=Lime,trackColor=SoftLine)
+                        LinearProgressIndicator(modifier=Modifier.fillMaxWidth().height(2.dp),color=Accent,trackColor=SoftLine)
                         Text(if(library.syncing)library.message else "正在自动整理曲风 · ${library.taggedCount} 首已有资料",color=Muted,fontSize=11.sp)
                     }
                     if(connected) item {
-                        OutlinedButton(onClick={draftIntent=library.intent;scoreTab=false;showIntent=true}) {Text("调整这次选歌",fontSize=12.sp)}
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick=onSurprise,modifier=Modifier.weight(1f),contentPadding=PaddingValues(horizontal=8.dp)) {
+                                Text("随心听",fontSize=13.sp)
+                            }
+                            OutlinedButton(onClick={draftIntent=library.intent;scoreTab=false;showIntent=true},
+                                modifier=Modifier.weight(1f),contentPadding=PaddingValues(horizontal=8.dp)) {
+                                Text("调整这次选歌",fontSize=13.sp)
+                            }
+                        }
                         if(library.intent.active)Text("想听：${library.intent.wanted.sorted().joinToString {genreName(it)}.ifBlank {"不限"}}\n避开：${library.intent.excluded.sorted().joinToString {genreName(it)}.ifBlank {"不限"}}",
                             color=Muted,fontSize=11.sp,lineHeight=19.sp)
-                        OutlinedButton(onClick=onSurprise) {Text("随心听 · 惊喜一首",fontSize=12.sp)}
-                        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f).clickable {tab=1}) {
-                                Text("收藏外候选 ${library.outsideCount} 首",color=Lime,fontSize=12.sp)
-                                if(library.discoveryMessage.isNotBlank())Text(library.discoveryMessage,color=Muted,fontSize=10.sp)
-                            }
-                            TextButton(onClick=onRefreshDiscovery,enabled=!library.discovering) {Text(if(library.discovering)"发现中…" else "发现更多",fontSize=12.sp)}
-                        }
                     }
-                    item {SectionTitle(if(library.recommendation==null)"收藏精选" else "为你推荐",if(library.recommendation==null)"查看全部" else "推荐理由",{if(library.recommendation==null)tab=2 else sources=!sources})}
+                    if(connected)item {
+                        GenreScoreSummary(library,{draftIntent=library.intent;scoreTab=true;showIntent=true},{showScoreReset=true})
+                    }
+                    item {SectionTitle(if(library.recommendation==null)"收藏精选" else "为你推荐",if(library.recommendation==null)"查看全部" else "推荐理由",
+                        {if(library.recommendation==null)tab=2 else showRecommendationReason=!showRecommendationReason})}
                     val recommendations=library.recommendation
                     if(recommendations!=null) {
-                        item {Text(recommendations.heading,color=Lime,fontSize=12.sp)}
-                        if(recommendations.picks.isNotEmpty())item {Button(onClick={onPlayRecommendation(null)}){Text("播放这批")}}
-                        if(recommendations.picks.isEmpty() || sources) item {Text(recommendations.explanation,color=Muted,fontSize=12.sp,lineHeight=20.sp)}
+                        item {
+                            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                                Text(recommendations.heading,modifier=Modifier.weight(1f),color=Accent,fontSize=13.sp)
+                                if(recommendations.picks.isNotEmpty()) Button(onClick={onPlayRecommendation(null)}){Text("播放这批")}
+                            }
+                        }
+                        if(recommendations.picks.isEmpty() || showRecommendationReason) item {Text(recommendations.explanation,color=Muted,fontSize=12.sp,lineHeight=20.sp)}
                         items(recommendations.picks,key={it.track.mediaId}) {pick ->
                             library.allTracks.firstOrNull {"qq:${it.mid}"==pick.track.mediaId}?.let {song ->
                                 TrackRow(song,library.genres[song.mid]?.labels.orEmpty(),{onPlayRecommendation(song.mid)},song.mid==player.mid,
                                     if(pick.unfamiliar)"新歌候选 · ${song.artist}" else song.artist,library.genres[song.mid],onDetails={detailSong=song})
-                                if(pick.surprise)Text("惊喜一首 · 曲风未知",color=Lime,fontSize=10.sp)
-                                if(sources)Text(pick.reason,color=Muted,fontSize=10.sp)
+                                if(pick.surprise)Text("惊喜一首 · 曲风未知",color=Accent,fontSize=10.sp)
+                                if(showRecommendationReason)Text(pick.reason,color=Muted,fontSize=10.sp)
                             }
                         }
                     } else {
                         items(library.favorites.take(6),key={it.mid}) {song -> TrackRow(song,library.genres[song.mid]?.labels.orEmpty(),{onPlay(song)},song.mid==player.mid,genre=library.genres[song.mid],onDetails={detailSong=song})}
                     }
                     if(library.favorites.isEmpty()) item {Text(if(connected)"收藏正在路上，稍后就会出现在这里。" else "登录后自动同步收藏，无需逐首填写曲风。",color=Muted,fontSize=13.sp,modifier=Modifier.padding(vertical=16.dp))}
-                    if(connected) {
-                        item {SectionTitle("你的收藏偏好","来自曲库标签")}
-                        val taste=library.favorites.flatMap {library.genres[it.mid]?.labels.orEmpty()}.groupingBy {it}.eachCount().entries.sortedByDescending {it.value}.take(4)
-                        items(taste,key={it.key}) {entry ->
-                            Row(Modifier.fillMaxWidth().padding(vertical=5.dp),verticalAlignment=Alignment.CenterVertically) {
-                                Text(genreName(entry.key),color=Cream,fontSize=12.sp,modifier=Modifier.width(65.dp))
-                                LinearProgressIndicator(progress={entry.value.toFloat()/(taste.firstOrNull()?.value?:1)},modifier=Modifier.weight(1f).height(5.dp).clip(CircleShape),color=Lime,trackColor=Panel)
-                                Text("${entry.value} 首",color=Muted,fontSize=10.sp,modifier=Modifier.padding(start=14.dp))
-                            }
-                        }
+                    if(connected)item {
+                        SectionTitle("收藏外候选 · ${library.outsideCount} 首","去发现") {tab=1}
                     }
                 } else if(tab==1) {
                     item {SectionTitle("发现新歌",if(library.discovering)"发现中…" else "发现更多",if(library.discovering)null else onRefreshDiscovery)}
-                    item {Text("从喜欢出发，听一点新的。",fontSize=22.sp,fontWeight=FontWeight.SemiBold)
-                        Text("依据 QQ 歌曲关联与本机听歌反馈排序，分散歌手；近期跳过的歌暂时避开。",fontSize=11.sp,color=Muted,lineHeight=19.sp)}
-                    item {TextButton(onClick={draftIntent=library.intent;scoreTab=false;showIntent=true}){Text(if(library.intent.active)"修改本次想听 / 避开条件" else "设置想听 / 避开条件")}}
                     item {OutlinedTextField(discoverySearch,{discoverySearch=it},modifier=Modifier.fillMaxWidth(),singleLine=true,
                         placeholder={Text("搜索发现里的歌曲、歌手",fontSize=12.sp)},leadingIcon={Glyph(ResonanceGlyph.SEARCH,Modifier.size(19.dp),Muted)},shape=RoundedCornerShape(15.dp))}
-                    item {FilterChip(selected=unheardOnly,onClick={unheardOnly=!unheardOnly},label={Text("仅看本机无听歌记录",fontSize=12.sp)})}
+                    item {
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
+                            FilterChip(selected=unheardOnly,onClick={unheardOnly=!unheardOnly},label={Text("本机未听",fontSize=12.sp)})
+                            TextButton(onClick={draftIntent=library.intent;scoreTab=false;showIntent=true}){
+                                Text(if(library.intent.active)"调整已选条件" else "选歌条件",fontSize=12.sp)
+                            }
+                        }
+                    }
                     item {Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                         FilterChip(selected=discoveryGenre==null,onClick={discoveryGenre=null},label={Text("全部曲风",fontSize=11.sp)})
                         library.discoveries.flatMap {library.genres[it.mid]?.labels.orEmpty()}.distinct().sorted().forEach {label ->
@@ -356,7 +405,9 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                     val entries=browserEntries
                     item {Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                         Text("${entries.size} 首可浏览",fontSize=12.sp,color=Muted,modifier=Modifier.weight(1f))
-                        Button(onClick={onPlayDiscovery(entries.take(100).map {it.song.mid},null)},enabled=entries.isNotEmpty()) {Text("播放前 ${minOf(100,entries.size)} 首",fontSize=12.sp)}
+                        if(entries.isNotEmpty()) Button(onClick={onPlayDiscovery(entries.take(100).map {it.song.mid},null)}) {
+                            Text(if(entries.size>100)"播放前 100 首" else "播放这批",fontSize=12.sp)
+                        }
                     }}
                     if(entries.isEmpty())item {Text(if(!connected)"连接 QQ 音乐后自动发现新歌。" else if(library.discovering)"正在寻找候选，稍后就会出现。" else
                         "暂无符合条件的新歌，可清除筛选或点“发现更多”。",color=Muted,fontSize=13.sp,modifier=Modifier.padding(vertical=18.dp))}
@@ -375,6 +426,23 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                     item {OutlinedTextField(search,{search=it},modifier=Modifier.fillMaxWidth(),singleLine=true,placeholder={Text("搜索歌曲、歌手",fontSize=13.sp)},
                         leadingIcon={Glyph(ResonanceGlyph.SEARCH,Modifier.size(19.dp),Muted)},shape=RoundedCornerShape(15.dp))}
                     if(library.openedPlaylist==null && connected) item {
+                        val coverage=if(library.favorites.isEmpty())0 else library.taggedCount*100/library.favorites.size
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Panel)
+                                .clickable(role=Role.Button) {showCatalogueDetails=!showCatalogueDetails}
+                                .semantics {stateDescription=if(showCatalogueDetails)"已展开" else "已收起"}
+                                .padding(horizontal=14.dp,vertical=12.dp),
+                            verticalAlignment=Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)) {
+                                Text("曲风资料",fontSize=14.sp,fontWeight=FontWeight.Medium)
+                                Text(if(library.enriching)"补充中 ${library.enrichedProgress}/${library.enrichmentTotal}"
+                                    else "${library.taggedCount} / ${library.favorites.size} 首 · $coverage%",color=Muted,fontSize=11.sp)
+                            }
+                            Text(if(showCatalogueDetails)"收起" else "管理",color=Accent,fontSize=12.sp)
+                        }
+                    }
+                    if(library.openedPlaylist==null && connected && showCatalogueDetails) item {
                         Text("已有曲风 ${library.taggedCount} · 等待查询 ${library.statusCount(GenreLookupStatus.WAITING)}\n" +
                             "待重试 ${library.statusCount(GenreLookupStatus.RETRY)} · 暂无资料 ${library.statusCount(GenreLookupStatus.UNAVAILABLE)}",
                             color=Muted,fontSize=12.sp,lineHeight=21.sp)
@@ -390,7 +458,11 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                             Text(if(library.enriching)"补充中 ${library.enrichedProgress}/${library.enrichmentTotal}" else "补充细分曲风",fontSize=12.sp)
                         }
                         Text("自动逐首补查单标签收藏，中断后下次继续。补充来源没有更多资料时保留原标签。",fontSize=10.sp,color=Muted,lineHeight=17.sp)
-                        Text("多曲风 ${library.favorites.count {library.genres[it.mid]?.labels.orEmpty().size>1}} 首 · 有听感线索 ${library.favorites.count {library.genres[it.mid]?.descriptors?.isNotEmpty()==true}} 首",fontSize=11.sp,color=Lime)
+                        Text("多曲风 ${library.favorites.count {library.genres[it.mid]?.labels.orEmpty().size>1}} 首 · 有听感线索 ${library.favorites.count {library.genres[it.mid]?.descriptors?.isNotEmpty()==true}} 首",fontSize=11.sp,color=Accent)
+                        val topGenres=library.favorites.flatMap {library.genres[it.mid]?.labels.orEmpty()}
+                            .groupingBy {it}.eachCount().entries.sortedByDescending {it.value}.take(4)
+                        if(topGenres.isNotEmpty()) Text(topGenres.joinToString(" · ") {"${genreName(it.key)} ${it.value} 首"},
+                            modifier=Modifier.padding(top=6.dp),fontSize=11.sp,color=Muted)
                     }
                     item {Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(9.dp)) {listOf("全部","已识别曲风","待补齐","待重试","暂无资料").forEachIndexed {i,label ->
                         FilterChip(selected=filter==i,onClick={filter=i},label={Text(label,fontSize=11.sp)})
@@ -410,20 +482,19 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                     item {SectionTitle("我的歌单","读取歌单",onPlaylists)}
                     items(library.playlists,key={it.id}) {list ->
                         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Panel).clickable {onPlaylist(list)}.padding(16.dp),verticalAlignment=Alignment.CenterVertically) {
-                            Glyph(ResonanceGlyph.LIBRARY,Modifier.size(24.dp),Lime);Text(list.name,fontSize=14.sp,modifier=Modifier.padding(start=14.dp))
+                            Glyph(ResonanceGlyph.LIBRARY,Modifier.size(24.dp),Accent);Text(list.name,fontSize=14.sp,modifier=Modifier.padding(start=14.dp))
                         }
                     }
                 } else {
-                    item {Text("让音乐，适合你。",fontSize=27.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(bottom=12.dp))}
                     item {
-                        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Brush.linearGradient(listOf(Color(0xFF35452B),Panel))).padding(22.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                            Text("陪伴时长",fontSize=14.sp,color=Lime)
-                            Text("${maxOf(library.listeningTimeMs,player.listeningTimeMs)/60000} 分钟",fontSize=34.sp,fontWeight=FontWeight.SemiBold)
-                            Text("在共鸣里，听过的每一分钟。",fontSize=12.sp,color=Cream)
-                            Text("累计实际播放时间，暂停与加载不计入。升级前仅补记现存听歌记录。",fontSize=10.sp,color=Muted,lineHeight=17.sp)
+                        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Brush.linearGradient(listOf(Selected,Panel)))
+                            .padding(20.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                            Text("陪伴时长",fontSize=13.sp,color=Accent,fontWeight=FontWeight.Medium)
+                            Text("${maxOf(library.listeningTimeMs,player.listeningTimeMs)/60000} 分钟",fontSize=32.sp,fontWeight=FontWeight.SemiBold)
+                            Text("累计听歌时间",fontSize=12.sp,color=Muted)
                         }
                     }
-                    if(connected)item {GenreScoreSummary(library,{scoreTab=true;showIntent=true},{showScoreReset=true})}
+                    if(connected)item {GenreScoreSummary(library,{draftIntent=library.intent;scoreTab=true;showIntent=true},{showScoreReset=true})}
                     item {
                         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Panel).padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
                             Text("QQ 音乐",fontSize=20.sp,fontWeight=FontWeight.SemiBold)
@@ -445,12 +516,17 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                     item {SettingSwitch("推荐里加入惊喜一首","每批最多一首随机未知曲风；收藏里的歌仍算熟悉。",surpriseEnabled){surpriseEnabled=it;settings.edit().putBoolean("qq_surprise_enabled",it).apply();QqLibrary.refreshRecommendationPreferences()}}
                     item {TextButton(onClick={previewNotice=DirectionNotice(System.nanoTime(),SystemClock.elapsedRealtime(),emptySet(),"INFO","提示预览 · 实际切歌后会显示目标歌名")}){Text("预览切歌提示")}}
                     item {TextButton(onClick={showDirectionHistory=true}){Text("最近换向记录")}}
-                    item {SectionTitle("播放与流量")}
-                    item {Text("默认标准音质 · 按需流式播放\n音频缓存上限 100MB\n收藏分析只读取资料，不批量下载歌曲。",fontSize=13.sp,color=Muted,lineHeight=24.sp)}
-                    item {SectionTitle("连接状态")}
-                    item {Text(library.message,color=Muted,fontSize=12.sp,lineHeight=20.sp);if(player.mid.isNotBlank())Text(player.message,color=Muted,fontSize=12.sp,modifier=Modifier.padding(top=8.dp))}
-                    item {TextButton(onClick={sources=!sources}) {Text("资料来源与隐私",color=Muted,fontSize=12.sp)}}
-                    if(sources) item {Text("歌曲、收藏及音源：QQ 音乐。曲风优先读取 QQ 单曲流派；缺失时查询 MusicBrainz，仅发送歌名、歌手、专辑与时长。听歌记录与登录凭据留在本机。曲库标签不等于已完成声音或情绪模型分析。",color=Muted,fontSize=12.sp,lineHeight=20.sp)}
+                    item {SectionTitle("账号与资料")}
+                    item {TextButton(onClick={showConnectionDetails=!showConnectionDetails}) {
+                        Text(if(showConnectionDetails)"收起连接与资料详情" else "连接状态、流量与隐私",fontSize=13.sp)
+                    }}
+                    if(showConnectionDetails) item {
+                        Text(library.message,color=Muted,fontSize=12.sp,lineHeight=20.sp)
+                        if(player.mid.isNotBlank())Text(player.message,color=Muted,fontSize=12.sp,modifier=Modifier.padding(top=8.dp))
+                        Text("标准音质 · 音频缓存上限 100 MB。收藏分析只读取资料。",fontSize=12.sp,color=Muted,lineHeight=20.sp,modifier=Modifier.padding(top=10.dp))
+                        Text("曲风优先读取 QQ 音乐单曲资料。在线补全向 MusicBrainz 查询歌名、歌手、专辑与时长。听歌记录与登录凭据保存在本机。",
+                            color=Muted,fontSize=12.sp,lineHeight=20.sp,modifier=Modifier.padding(top=8.dp))
+                    }
                     item {TextButton(onClick=onLegacy) {Text("旧版监听与记录",color=Muted,fontSize=12.sp)}}
                     if(connected)item {TextButton(onClick=onLogout) {Text("退出 QQ 音乐账号",color=Color(0xFFCE9E91),fontSize=12.sp)}}
                     item {Text("RESONANCE · 共鸣 ${BuildConfig.VERSION_NAME}",color=Muted.copy(alpha=.5f),fontSize=10.sp,letterSpacing=1.5.sp,modifier=Modifier.padding(vertical=18.dp))}
@@ -463,32 +539,44 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
             sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
             Box {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal=30.dp).navigationBarsPadding(),horizontalAlignment=Alignment.CenterHorizontally) {
-                Text("此刻，正在共鸣",color=Muted,fontSize=12.sp,letterSpacing=2.sp,modifier=Modifier.padding(bottom=25.dp))
-                AlbumCover(current,Modifier.fillMaxWidth(.76f).aspectRatio(1f).clip(RoundedCornerShape(24.dp)))
-                Text(current.name,fontSize=25.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(top=25.dp),maxLines=2,overflow=TextOverflow.Ellipsis)
-                Text(current.artist,color=Muted,fontSize=13.sp,modifier=Modifier.padding(top=8.dp,bottom=18.dp))
-                FavoriteControl(current,library,onFavorite)
-                Text(library.genres[current.mid]?.labels?.takeIf {it.isNotEmpty()}?.sorted()?.joinToString(" · ") {genreName(it)}
-                    ?: GenreLookupPolicy.description(library.genres[current.mid]),color=Lime,fontSize=12.sp)
-                var drag by remember {mutableStateOf<Float?>(null)}
+                AlbumCover(current,Modifier.widthIn(max=232.dp).fillMaxWidth(.9f).aspectRatio(1f).clip(RoundedCornerShape(22.dp)))
+                Row(Modifier.fillMaxWidth().padding(top=16.dp),verticalAlignment=Alignment.CenterVertically,
+                    horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(5.dp)) {
+                        Text(current.name,fontSize=24.sp,fontWeight=FontWeight.SemiBold,lineHeight=30.sp,maxLines=2,overflow=TextOverflow.Ellipsis)
+                        Text(current.artist,color=Muted,fontSize=13.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
+                    }
+                    FavoriteControl(current,library,onFavorite,compact=true)
+                }
+                var drag by remember(current.mid) {mutableStateOf<Float?>(null)}
                 Slider(value=drag?:if(player.durationMs>0)(player.positionMs.toFloat()/player.durationMs).coerceIn(0f,1f) else 0f,
-                    onValueChange={drag=it},onValueChangeFinished={drag?.let(onSeek);drag=null},modifier=Modifier.padding(top=14.dp))
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {Text(timeText(player.positionMs),color=Muted,fontSize=11.sp);Text(timeText(player.durationMs),color=Muted,fontSize=11.sp)}
-                Row(Modifier.fillMaxWidth().padding(vertical=16.dp),horizontalArrangement=Arrangement.SpaceEvenly,verticalAlignment=Alignment.CenterVertically) {
+                    onValueChange={drag=it},onValueChangeFinished={drag?.let(onSeek);drag=null},modifier=Modifier.fillMaxWidth().padding(top=5.dp))
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
+                    Text(timeText(drag?.let {(player.durationMs*it).toLong()}?:player.positionMs),color=Muted,fontSize=11.sp)
+                    Text(timeText(player.durationMs),color=Muted,fontSize=11.sp)
+                }
+                Row(Modifier.fillMaxWidth().padding(vertical=10.dp),horizontalArrangement=Arrangement.SpaceEvenly,verticalAlignment=Alignment.CenterVertically) {
                     CircleAction(ResonanceGlyph.PREVIOUS,"上一首",onPrevious,size=48)
                     CircleAction(if(player.playing || (player.loading && player.playRequested))ResonanceGlyph.PAUSE else ResonanceGlyph.PLAY,"播放或暂停",onToggle,true,72)
                     CircleAction(ResonanceGlyph.NEXT,"下一首",onNext,size=48)
                 }
-                Text("播放模式 · 队列 ${player.queueSize} 首",color=Muted,fontSize=11.sp)
-                Text("随机参考标签分数动态调整后续顺序，仍保留探索。",color=Muted,fontSize=10.sp)
-                PlaybackRangeChoices(player.playbackRange,onPlaybackRange)
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    PlaybackMode.entries.forEach {mode -> FilterChip(selected=player.playbackMode==mode.name,onClick={onPlaybackMode(mode.name)},label={Text(mode.label,fontSize=11.sp)})}
-                }
-                Button(onClick={QqLibrary.similar(current.mid);expandedPlayer=false;tab=0},modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.buttonColors(containerColor=Panel,contentColor=Lime)) {Text("相似推荐")}
+                val labels=library.genres[current.mid]?.labels.orEmpty()
+                if(labels.isNotEmpty())CompleteTagRow(labels)
+                else Text(GenreLookupPolicy.description(library.genres[current.mid]),color=Muted,fontSize=12.sp)
+                Button(onClick={QqLibrary.similar(current.mid);expandedPlayer=false;tab=0},modifier=Modifier.fillMaxWidth().padding(top=8.dp),
+                    colors=ButtonDefaults.buttonColors(containerColor=Raised,contentColor=Accent)) {Text("相似推荐")}
                 Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
                     TextButton(onClick={openFeedback(current,true)}){Text("多来这种")}
                     TextButton(onClick={openFeedback(current,false)}){Text("暂时少放")}
+                }
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Panel).padding(12.dp)) {
+                    Text("播放模式 · 队列 ${player.queueSize} 首",color=Muted,fontSize=12.sp)
+                    FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(5.dp)) {
+                        PlaybackMode.entries.forEach {mode ->
+                            FilterChip(selected=player.playbackMode==mode.name,onClick={onPlaybackMode(mode.name)},label={Text(mode.label,fontSize=11.sp)})
+                        }
+                    }
+                    PlaybackRangeChoices(player.playbackRange,onPlaybackRange)
                 }
                 TextButton(onClick={expandedPlayer=false;showDirectionHistory=true}){Text("最近换向记录")}
                 Text(if(player.excerpt)"试听片段 · 暂不纳入偏好" else "QQ 音乐音源 · 后台播放",color=Muted,fontSize=11.sp,modifier=Modifier.padding(vertical=20.dp))
@@ -507,13 +595,13 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                 FavoriteControl(song,library,onFavorite)
                 Text("全部曲风标签",fontSize=15.sp)
                 Text(library.genres[song.mid]?.labels?.takeIf {it.isNotEmpty()}?.sorted()?.joinToString(" · ") {genreName(it)}
-                    ?: GenreLookupPolicy.description(library.genres[song.mid]),color=Lime,fontSize=14.sp,lineHeight=24.sp)
+                    ?: GenreLookupPolicy.description(library.genres[song.mid]),color=Accent,fontSize=14.sp,lineHeight=24.sp)
                 library.genres[song.mid]?.providers()?.forEach {(provider,labels)->
                     Text((if(provider=="qq-song-detail")"QQ 单曲资料：" else "严格匹配的补充曲库：")+labels.sorted().joinToString(" · "){genreName(it)},color=Muted,fontSize=11.sp,lineHeight=18.sp)
                 }
                 library.genres[song.mid]?.descriptors?.takeIf {it.isNotEmpty()}?.let {labels ->
                     Text("听感线索 · 曲库标注",fontSize=15.sp)
-                    Text(labels.sorted().joinToString(" · "){descriptorName(it)},color=Lime,fontSize=14.sp)
+                    Text(labels.sorted().joinToString(" · "){descriptorName(it)},color=Accent,fontSize=14.sp)
                     Text("来自严格匹配录音的社区标注，至少 2 票；单独展示，尚不用于自动选歌，也不是声音模型识别结果。",color=Muted,fontSize=11.sp,lineHeight=18.sp)
                 }
                 Text(library.genres[song.mid]?.enrichmentNote?.ifBlank {"仅展示曲库实际提供的标签，缺少资料不会猜测情绪。"}?:"缺少曲风不影响播放，惊喜抽取不会为歌曲添加标签。",color=Muted,fontSize=11.sp,lineHeight=18.sp)
@@ -583,7 +671,7 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                 if(library.directionHistory.isEmpty())item {Text("还没有自动换向记录。连续 4 次有效快跳后会记录尝试结果。",color=Muted,fontSize=13.sp)}
                 items(library.directionHistory.asReversed(),key={it.id}) {row ->
                     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Panel).padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                        Text(directionStateName(row.state)+" · "+if(row.kind=="BATCH")"换一批" else "换曲风",color=Lime,fontSize=12.sp)
+                        Text(directionStateName(row.state)+" · "+if(row.kind=="BATCH")"换一批" else "换曲风",color=Accent,fontSize=12.sp)
                         Text(row.targetName.ifBlank {row.targetMid},fontSize=17.sp)
                         Text(java.text.SimpleDateFormat("MM-dd HH:mm:ss",java.util.Locale.getDefault()).format(java.util.Date(row.time)),fontSize=11.sp,color=Muted)
                         Text(row.detail.ifBlank {"等待目标歌曲播放确认"},fontSize=12.sp,lineHeight=20.sp)
@@ -628,26 +716,41 @@ fun DirectionChangeBanner(notice:DirectionNotice?,modifier:Modifier=Modifier) {
         } else visible=false
     }
     AnimatedVisibility(visible,modifier.padding(horizontal=24.dp).widthIn(max=340.dp),enter=fadeIn(tween(200)),exit=fadeOut(tween(450))) {
-        Box(Modifier.clip(RoundedCornerShape(22.dp)).background(Color(0xF0CEFA8D)).padding(horizontal=18.dp,vertical=13.dp)
+        Box(Modifier.clip(RoundedCornerShape(22.dp)).background(Accent.copy(alpha=.96f)).padding(horizontal=18.dp,vertical=13.dp)
             .semantics {liveRegion=LiveRegionMode.Polite}) {
             Text(shown?.message?.takeIf {it.isNotBlank()} ?: (if(shown?.kind=="BATCH")"已换一批" else "已换个方向")+shown?.genres?.takeIf {it.isNotEmpty()}?.sorted()?.joinToString(" · ",prefix=" · ") {genreName(it)}.orEmpty(),
                 color=Ink,fontSize=14.sp,maxLines=2,overflow=TextOverflow.Ellipsis)
         }
     }
 }
-@Composable private fun FavoriteControl(song:QqCatalogueTrack,library:LibraryState,onFavorite:(String)->Unit) {
+@Composable private fun FavoriteControl(song:QqCatalogueTrack,library:LibraryState,onFavorite:(String)->Unit,compact:Boolean=false) {
     val liked=library.favoriteStates[song.mid]?:library.favorites.any {it.mid==song.mid}
     val busy=song.mid in library.favoriteBusy
-    OutlinedButton(onClick={onFavorite(song.mid)},enabled=library.accountScope.isNotBlank() && !busy) {
-        Glyph(ResonanceGlyph.HEART,Modifier.size(17.dp),if(liked)Lime else Muted)
+    val enabled=library.accountScope.isNotBlank() && !busy
+    val label=when {
+        busy -> "正在确认 QQ 收藏…"
+        song.mid in library.favoriteUncertain -> "刷新收藏状态"
+        liked -> "已喜欢 · 取消收藏"
+        else -> "收藏到 QQ 我喜欢"
+    }
+    if(compact) IconButton(onClick={onFavorite(song.mid)},enabled=enabled,
+        modifier=Modifier.semantics {contentDescription=label}) {
+        Box(Modifier.size(40.dp).clip(CircleShape).background(if(liked)Selected else Raised),contentAlignment=Alignment.Center) {
+            if(busy)CircularProgressIndicator(Modifier.size(16.dp),strokeWidth=2.dp)
+            else Glyph(if(song.mid in library.favoriteUncertain)ResonanceGlyph.REFRESH else ResonanceGlyph.HEART,
+                Modifier.size(20.dp),if(liked && enabled)Accent else Muted)
+        }
+    } else OutlinedButton(onClick={onFavorite(song.mid)},enabled=enabled) {
+        Glyph(ResonanceGlyph.HEART,Modifier.size(17.dp),if(liked)Accent else Muted)
         Spacer(Modifier.width(8.dp))
-        Text(when {busy->"正在确认 QQ 收藏…";song.mid in library.favoriteUncertain->"刷新收藏状态";liked->"已喜欢 · 取消收藏";else->"收藏到 QQ 我喜欢"},fontSize=12.sp)
+        Text(label,fontSize=12.sp)
     }
 }
+@OptIn(ExperimentalLayoutApi::class)
 @Composable private fun PlaybackRangeChoices(selected:String,onSelect:(String)->Unit) {
     Column {
         Text("随机与循环范围",fontSize=12.sp,color=Muted)
-        Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+        FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
             PlaybackRange.entries.forEach {range ->FilterChip(selected==range.name,{onSelect(range.name)},label={Text(range.label,fontSize=11.sp)})}
         }
     }
@@ -656,22 +759,26 @@ private fun scoreText(value:Double)=String.format(java.util.Locale.ROOT,"%+.1f",
 private fun directionStateName(state:String)=when(state){"PLAYING"->"已确认播放";"FAILED"->"播放失败";"CANCELED"->"已取消";"UNCONFIRMED"->"未确认播放";else->"正在切换"}
 @Composable private fun GenreScorePanel(library:LibraryState) {
     val scores=remember(library.allTracks,library.genres,library.scoreSignals,library.manualScores){library.genreScores()}
-    Text("分数越高越倾向推荐；全部已有标签都会列出。没有收听记录的标签为 0。",fontSize=12.sp,color=Muted,lineHeight=20.sp)
-    Text("听完 +2 · 中途切歌 −1 · 有效快跳 −3。多标签平分反馈；综合分 = 最近 20 条 ×70% + 最近 500 条归一到 20 条 ×30%。这是偏好参考分，不是情绪识别。",fontSize=11.sp,color=Muted,lineHeight=19.sp)
-    Text("综合分用于候选排序；四连跳还会避开共同被跳过的标签，手动条件优先。",fontSize=11.sp,color=Muted,lineHeight=19.sp)
-    Text("随机也使用综合分动态加权。主动反馈另计入综合分；清除分数会同时清除主动反馈。",fontSize=11.sp,color=Muted,lineHeight=19.sp)
+    var showCalculation by remember {mutableStateOf(false)}
+    Text("综合分越高，随机播放和推荐时越容易选到该曲风。",fontSize=12.sp,color=Muted,lineHeight=20.sp)
     Row(Modifier.fillMaxWidth()) {Text("标签",Modifier.weight(1f),fontSize=12.sp);Text("近期 / 长期 / 综合",fontSize=12.sp,color=Muted)}
     if(scores.isEmpty())Text("暂没有可用曲风标签。",color=Muted,fontSize=13.sp)
     scores.forEach {row ->
         Row(Modifier.fillMaxWidth().padding(vertical=7.dp),verticalAlignment=Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {Text(genreName(row.label),fontSize=14.sp);Text("${row.observations} 次记录"+if(row.manual!=0.0)" · 主动 ${scoreText(row.manual)}" else "",fontSize=10.sp,color=Muted)}
-            Text("${scoreText(row.recent)} / ${scoreText(row.longTerm)} / ${scoreText(row.combined)}",fontSize=12.sp,color=if(row.combined<0)Color(0xFFCE9E91) else Lime)
+            Text("${scoreText(row.recent)} / ${scoreText(row.longTerm)} / ${scoreText(row.combined)}",fontSize=12.sp,color=if(row.combined<0)Color(0xFFCE9E91) else Accent)
         }
     }
+    TextButton(onClick={showCalculation=!showCalculation},contentPadding=PaddingValues(horizontal=0.dp)) {
+        Text(if(showCalculation)"收起计分说明" else "分数怎么算",fontSize=12.sp)
+    }
+    if(showCalculation) Text("听完 +2，中途切歌 −1，有效快跳 −3。多标签平分反馈。综合分包含最近 20 条的 70%、最近 500 条归一到 20 条后的 30%，再加主动反馈。",
+        fontSize=12.sp,color=Muted,lineHeight=20.sp)
 }
 @Composable private fun GenreScoreSummary(library:LibraryState,onAll:()->Unit,onClear:()->Unit) {
     val scores=remember(library.allTracks,library.genres,library.scoreSignals,library.manualScores){library.genreScores()}
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Panel).padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Panel).padding(horizontal=14.dp,vertical=6.dp),
+        verticalArrangement=Arrangement.spacedBy(2.dp)) {
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
             Text("当前标签分数",fontSize=17.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.weight(1f))
             TextButton(onClick=onAll,contentPadding=PaddingValues(horizontal=6.dp)){Text("查看全部 ${scores.size} 项",fontSize=11.sp)}
@@ -679,13 +786,13 @@ private fun directionStateName(state:String)=when(state){"PLAYING"->"已确认�
         if(scores.isEmpty())Text("暂无曲风标签，取得资料后会在这里显示。",fontSize=12.sp,color=Muted)
         else Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             scores.sortedByDescending {kotlin.math.abs(it.combined)}.forEach {row ->
-                Column(Modifier.clip(RoundedCornerShape(12.dp)).background(Ink).padding(horizontal=14.dp,vertical=10.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
-                    Text(genreName(row.label),fontSize=11.sp,color=Muted)
-                    Text(scoreText(row.combined),fontSize=21.sp,fontWeight=FontWeight.Medium,color=if(row.combined<0)Color(0xFFCE9E91) else Lime)
+                Row(Modifier.clip(RoundedCornerShape(9.dp)).background(Raised).padding(horizontal=10.dp,vertical=7.dp),
+                    horizontalArrangement=Arrangement.spacedBy(7.dp),verticalAlignment=Alignment.CenterVertically) {
+                    Text(genreName(row.label),fontSize=12.sp,color=Muted)
+                    Text(scoreText(row.combined),fontSize=13.sp,fontWeight=FontWeight.SemiBold,color=if(row.combined<0)Color(0xFFFFB8B2) else Accent)
                 }
             }
         }
-        Text("随机随标签分数调整后续顺序；四连跳另会避开共同被跳过的标签。",fontSize=11.sp,color=Muted,lineHeight=18.sp)
         TextButton(onClick=onClear,contentPadding=PaddingValues(0.dp)){Text("清除当前所有分数",fontSize=11.sp,color=Muted)}
     }
 }
