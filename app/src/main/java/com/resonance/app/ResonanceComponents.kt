@@ -319,7 +319,8 @@ private val homeDestinations = listOf("为你" to ResonanceGlyph.HOME, "发现" 
 internal fun Dock(
     tab: Int, song: QqCatalogueTrack?, player: PlayerStatus, clock: State<PlaybackClock>, cover: ImageBitmap?,
     ticker: FrameTicker, onTab: (Int) -> Unit, onExpand: () -> Unit, onMode: (String) -> Unit,
-    onToggle: () -> Unit, onNext: () -> Unit
+    onToggle: () -> Unit, onNext: () -> Unit,
+    artworkSlot: @Composable (Boolean, @Composable () -> Unit) -> Unit = { _, content -> content() }
 ) {
     val shape = RoundedCornerShape(28.dp)
     val animate = LocalResonanceMotion.current
@@ -342,10 +343,15 @@ internal fun Dock(
                     .clickable(openInteraction, LocalIndication.current, onClickLabel = "展开播放器", onClick = onExpand)
                     .resonancePress(openInteraction),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val coverShape = RoundedCornerShape(12.dp)
-                    if (cover != null) Image(cover, null, Modifier.size(42.dp).clip(coverShape), contentScale = ContentScale.Crop)
-                    else Box(Modifier.size(42.dp).clip(coverShape)) {
-                        SandPlate(song.mid, Modifier.matchParentSize())
+                    Box(Modifier.size(Space.dockCover), contentAlignment = Alignment.Center) {
+                        artworkSlot(true) {
+                            if (cover == null) Box(Modifier.fillMaxSize().clip(Corners.dockCover)) {
+                                SandPlate(song.mid, Modifier.matchParentSize())
+                            } else Box(Modifier.fillMaxSize().clip(Corners.dockCover).background(ResonancePalette.plate))
+                        }
+                        if (cover != null) artworkSlot(false) {
+                            Image(cover, null, Modifier.fillMaxSize().clip(Corners.dockCover), contentScale = ContentScale.Crop)
+                        }
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                         ResonanceText(song.name, 14, weight = FontWeight.Bold, english = true)
@@ -400,16 +406,16 @@ internal fun Dock(
 
 @Composable
 internal fun IconAction(label: String, onClick: () -> Unit, color: Color, filled: Boolean = false, outline: Boolean = false,
-    content: @Composable () -> Unit) {
+    diameter: Dp = Space.x8 + Space.x3, content: @Composable () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
-    Box(Modifier.size(48.dp).clickable(interaction, LocalIndication.current, role = Role.Button, onClick = onClick)
+    Box(Modifier.size(maxOf(Space.touch, diameter)).clickable(interaction, LocalIndication.current, role = Role.Button, onClick = onClick)
         .semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
         val surface = when {
             filled -> Modifier.background(color, CircleShape)
             outline -> Modifier.border(1.5.dp, color, CircleShape)
             else -> Modifier
         }
-        Box(Modifier.size(44.dp).resonancePress(interaction).then(surface), contentAlignment = Alignment.Center) { content() }
+        Box(Modifier.size(diameter).resonancePress(interaction).then(surface), contentAlignment = Alignment.Center) { content() }
     }
 }
 
@@ -420,11 +426,11 @@ private val pauseOutline = floatArrayOf(.25f,.20f, .41f,.20f, .41f,.80f, .25f,.8
     .59f,.20f, .75f,.20f, .75f,.80f, .59f,.80f)
 
 @Composable
-internal fun PlayPauseMorph(playing: Boolean) {
+internal fun PlayPauseMorph(playing: Boolean, modifier: Modifier = Modifier.size(Space.x6)) {
     val animate = LocalResonanceMotion.current
     val target = if (playing) 1f else 0f
     val phase = resonanceAnimatedValue(target, Motion.PlayMorph, Motion.easeInOut, "play pause")
-    Canvas(Modifier.size(24.dp).drawWithCache {
+    Canvas(modifier.drawWithCache {
         val path = Path()
         onDrawBehind {
             val t = if (animate) phase.value else target
