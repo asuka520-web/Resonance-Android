@@ -2,6 +2,12 @@ package com.resonance.app
 
 data class DirectionNotice(val id:Long,val createdAt:Long,val genres:Set<String>,val kind:String="GENRE",val message:String="")
 
+internal fun directionLabel(kind: String): String = when (kind) {
+    "BATCH" -> "换一批"
+    "GENRE_HINT" -> "试试别的曲风"
+    else -> "换曲风"
+}
+
 /** Announce confirmed audible progress, never merely a queue replacement request. */
 class DirectionNoticeGate {
     private var target:String?=null

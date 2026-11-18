@@ -61,7 +61,8 @@ object QqLibrary {
         val context=app?:return 0
         val id=System.nanoTime()
         val row=DirectionSwitch(id,System.currentTimeMillis(),from,target,track(target)?.name.orEmpty(),plan.directionKind,plan.explanation,
-            scores=GenrePreferenceScores.calculate(styleTracks(),value.scoreSignals,value.manualScores).associate {it.label to it.combined})
+            scores=GenrePreferenceScores.calculate(styleTracks(),value.scoreSignals,value.manualScores).associate {it.label to it.combined},
+            targetRecordingId=value.genres[target]?.recordingId.orEmpty())
         val rows=(value.directionHistory+row).takeLast(20)
         CatalogueStore.saveDirectionHistory(context,value.accountScope,rows);update(value.copy(directionHistory=rows))
         return id
@@ -228,9 +229,17 @@ object QqLibrary {
         if(!context.getSharedPreferences("resonance_settings",Context.MODE_PRIVATE).getBoolean("catalogue_external_tags",true)) {
             if(!automatic)feedback("请在“我的”开启在线补全。");return
         }
-        if(automatic && automaticEnriched)return
         val now=System.currentTimeMillis()
-        val candidates=CatalogueEnrichmentPlan.candidates(if(mid!=null)value.allTracks else value.favorites,value.genres,mid,automatic,now)
+        val tracks = when {
+            mid != null -> value.allTracks
+            automatic -> {
+                val recentlySkipped = value.listening.takeLast(4).asReversed().filter {it.category == "fast"}
+                    .mapNotNull {track(it.mediaId.removePrefix("qq:"))}
+                recentlySkipped + if (automaticEnriched) emptyList() else value.favorites
+            }
+            else -> value.favorites
+        }
+        val candidates=CatalogueEnrichmentPlan.candidates(tracks,value.genres,mid,automatic,now)
         if(candidates.isEmpty()){if(!automatic)feedback("暂无需要补查的单标签歌曲。");return}
         if(automatic)automaticEnriched=true
         val token=generation
@@ -295,6 +304,7 @@ object QqLibrary {
                         it.mid in forcedGenres || (it.mid !in processed && (value.genres[it.mid]?.retryAt ?: 0L) <= now)
                     } ?: break
                     forcedGenres.remove(song.mid)
+                    priority.remove(song.mid)
                     processed.add(song.mid)
                     update(value.copy(activeGenreMid = song.mid))
                     try {
@@ -367,16 +377,28 @@ object QqLibrary {
         enqueueDiscovery(mid)
         return plan
     }
-    fun direction(mid: String): StylePlan {
+    fun direction(mid: String, range: PlaybackRange): StylePlan {
         recommendationAnchor = null
-        val favorites=value.favorites.map {"qq:${it.mid}"}.toSet()
-        val genrePlan = StyleRecommendations.changeDirection("qq:$mid", styleTracks(), signals(), favorites,value.intent,value.scoreSignals,value.manualScores)
-        val plan=DirectionFallback.plan(genrePlan,styleTracks(true).filter {value.intent.accepts(it.genres)},signals(),favorites,"qq:$mid",value.scoreSignals,value.manualScores)
+        val plan = planDirection(value, styleTracks(true), "qq:$mid", range)
+        prioritizeGenres((signals().takeLast(4).asReversed().map {it.mediaId} + plan.picks.take(3).map {it.track.mediaId})
+            .map {it.removePrefix("qq:")})
+        enrichGenres(automatic = true)
         update(value.copy(recommendation = plan))
         return plan
     }
     fun track(mid: String) = value.allTracks.firstOrNull { it.mid == mid }
-    fun prioritize(mid: String) { priority.add(mid); analyze(); enqueueDiscovery(mid) }
+    private fun prioritizeGenres(mids: List<String>) {
+        val now = System.currentTimeMillis()
+        val due = mids.filter {mid -> (value.genres[mid]?.retryAt ?: 0L) <= now}
+        val newest = (due + priority).distinct().take(100)
+        priority.clear()
+        priority.addAll(newest)
+        analyze()
+    }
+    fun prioritize(mid: String) {
+        prioritizeGenres(listOf(mid))
+        enqueueDiscovery(mid)
+    }
     private fun similarPlan(mid: String):StylePlan {
         val tracks=styleTracks(true)
         val favorites=value.favorites.map {"qq:${it.mid}"}.toSet()

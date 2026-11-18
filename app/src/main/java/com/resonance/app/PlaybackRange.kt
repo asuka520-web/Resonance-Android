@@ -16,13 +16,45 @@ object PlaybackQueuePolicy {
         (listOf(seed)+pool(state,PlaybackRange.LIBRARY,emptyList(),seed.mid)).distinctBy {it.mid}.take(100)
 }
 
+internal fun planDirection(state: LibraryState, tracks: List<StyleTrack>, current: String, range: PlaybackRange): StylePlan {
+    val favorites = state.favorites.map {"qq:${it.mid}"}.toSet()
+    val events = state.listening
+    val recentIds = recentDirectionTargets(state.directionHistory, tracks) + events.takeLast(20).map {it.mediaId}
+    val recentRecordings = tracks.filter {it.mediaId in recentIds}.map {it.recordingId}.toSet()
+    val excluded = recentIds + tracks.filter {it.recordingId in recentRecordings}.map {it.mediaId}
+    val candidates = tracks.filter {
+        state.intent.accepts(it.genres) && (range != PlaybackRange.FAVORITES || it.mediaId in favorites)
+    }.map {it.mediaId}.toSet()
+    val style = StyleRecommendations.changeDirection(
+        current, tracks, events, favorites, state.intent, state.scoreSignals, state.manualScores,
+        allowPartialEvidence = true, excludedIds = excluded, candidateIds = candidates
+    )
+    return DirectionFallback.plan(style, tracks, events, favorites, current, state.scoreSignals, state.manualScores,
+        excludedIds = excluded, candidateIds = candidates).copy(directionExcludedIds = excluded)
+}
+
 object DirectionFallback {
-    fun plan(original:StylePlan,tracks:List<StyleTrack>,events:List<ListeningSignal>,favorites:Set<String>,current:String,scoreEvents:List<ListeningSignal> = events,manualScores:Map<String,Double> = emptyMap()):StylePlan {
+    fun plan(original: StylePlan, tracks: List<StyleTrack>, events: List<ListeningSignal>, favorites: Set<String>,
+             current: String, scoreEvents: List<ListeningSignal> = events, manualScores: Map<String,Double> = emptyMap(),
+             excludedIds: Set<String> = emptySet(), candidateIds: Set<String>? = null): StylePlan {
         if(original.picks.isNotEmpty())return original
         if(events.takeLast(4).size<4 || events.takeLast(4).any {it.category!="fast"})return original
-        val rejected=events.takeLast(20).map {it.mediaId}.toSet()+current
-        val scores=GenrePreferenceScores.calculate(tracks,scoreEvents,manualScores).associateBy {it.label}
-        val pool=tracks.filter {it.mediaId !in rejected}.distinctBy {it.recordingId}.sortedByDescending {GenrePreferenceScores.preference(it,events,scores)}.toMutableList()
+        val rejected = events.takeLast(20).map {it.mediaId}.toSet() + current + excludedIds
+        val byId = tracks.associateBy {it.mediaId}
+        val rejectedRecordings = rejected.mapNotNull {byId[it]?.recordingId}.toSet()
+        val recentStyles = events.takeLast(4).mapNotNull {byId[it.mediaId]}
+            .map {GenreEvidence.comparable(it.genres)}.filter {it.isNotEmpty()}
+        val scores = GenrePreferenceScores.calculate(tracks,scoreEvents,manualScores).associateBy {it.label}
+        fun similarityToSkipped(song: StyleTrack): Double {
+            if (recentStyles.isEmpty()) return 0.0
+            if (GenreEvidence.comparable(song.genres).isEmpty()) return .65
+            return recentStyles.maxOf {GenreEvidence.affinity(song.genres,it)}
+        }
+        val pool = tracks.filter {
+            it.mediaId !in rejected && it.recordingId !in rejectedRecordings && (candidateIds == null || it.mediaId in candidateIds)
+        }.sortedWith(compareBy<StyleTrack> {similarityToSkipped(it)}
+            .thenByDescending {GenrePreferenceScores.preference(it,events,scores)})
+            .distinctBy {it.recordingId}.toMutableList()
         val ranked=mutableListOf<StyleTrack>()
         while(pool.isNotEmpty() && ranked.size<30) {
             val next=pool.firstOrNull {candidate->ranked.takeLast(2).none {it.artist==candidate.artist}}?:pool.first()
@@ -31,8 +63,10 @@ object DirectionFallback {
         val known=favorites+events.map {it.mediaId}
         val selected=(ranked.filter {it.mediaId in known}.take(7)+ranked.filter {it.mediaId !in known}.take(3)).toMutableList()
         selected.addAll(ranked.filter {it !in selected}.take(10-selected.size))
-        if(selected.isEmpty())return original
-        return StylePlan("换一批，重新找感觉",original.explanation+"\n现有曲风不足以找到另一种风格，改换未在近期记录中出现的一批候选；不宣称已换曲风。",
-            selected.map {StylePick(it,"连续快跳后换批候选，未按不同曲风匹配",it.mediaId !in known)},directionKind="BATCH")
+        if(selected.isEmpty()) return original.copy(explanation=original.explanation+
+            "\n当前范围内没有避开近期听歌和换向目标的候选，继续原队列。")
+        return StylePlan("换一批", original.explanation + if(recentStyles.isEmpty())
+            "\n换一批近期未出现的候选。" else "\n换一批近期未出现的候选，优先选与已知快跳曲风区别较大的歌曲。",
+            selected.map {StylePick(it,"四次快跳后的换批候选",it.mediaId !in known)},directionKind="BATCH")
     }
 }

@@ -29,19 +29,20 @@ object GenrePreferenceScores {
 }
 
 data class DirectionSwitch(val id:Long,val time:Long,val fromMid:String,val targetMid:String,val targetName:String,
-    val kind:String,val reason:String,val state:String="PREPARING",val detail:String="",val scores:Map<String,Double> = emptyMap())
+    val kind:String,val reason:String,val state:String="PREPARING",val detail:String="",val scores:Map<String,Double> = emptyMap(),
+    val targetRecordingId:String="")
 object DirectionSwitchCodec {
     fun encode(rows:List<DirectionSwitch>)=org.json.JSONArray(rows.takeLast(20).map {row ->org.json.JSONObject()
         .put("id",row.id).put("time",row.time).put("from",row.fromMid).put("target",row.targetMid).put("name",row.targetName)
         .put("kind",row.kind).put("reason",row.reason).put("state",row.state).put("detail",row.detail)
-        .put("scores",org.json.JSONObject(row.scores))}).toString()
+        .put("scores",org.json.JSONObject(row.scores)).put("recording",row.targetRecordingId)}).toString()
     fun decode(raw:String?):List<DirectionSwitch> = try {
         val rows=org.json.JSONArray(raw?:"[]")
         (maxOf(0,rows.length()-20) until rows.length()).mapNotNull {i ->runCatching {
             val r=rows.getJSONObject(i);val scores=r.optJSONObject("scores")
             DirectionSwitch(r.getLong("id"),r.getLong("time"),r.getString("from"),r.getString("target"),r.getString("name"),
                 r.getString("kind"),r.getString("reason"),r.getString("state"),r.optString("detail"),
-                scores?.keys()?.asSequence()?.associateWith {scores.getDouble(it)}.orEmpty())
+                scores?.keys()?.asSequence()?.associateWith {scores.getDouble(it)}.orEmpty(),r.optString("recording"))
         }.getOrNull()}
     }catch(_:Exception){emptyList()}
 }

@@ -778,7 +778,7 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                 if(library.directionHistory.isEmpty())item {Text("还没有自动换向记录。连续 4 次有效快跳后会记录尝试结果。",color=Muted,fontSize=13.sp)}
                 items(library.directionHistory.asReversed(),key={it.id}) {row ->
                     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Panel).padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                        Text(directionStateName(row.state)+" · "+if(row.kind=="BATCH")"换一批" else "换曲风",color=Accent,fontSize=12.sp)
+                        Text(directionStateName(row.state)+" · "+directionLabel(row.kind),color=Accent,fontSize=12.sp)
                         Text(row.targetName.ifBlank {row.targetMid},fontSize=17.sp)
                         Text(java.text.SimpleDateFormat("MM-dd HH:mm:ss",java.util.Locale.getDefault()).format(java.util.Date(row.time)),fontSize=11.sp,color=Muted)
                         Text(row.detail.ifBlank {"等待目标歌曲播放确认"},fontSize=12.sp,lineHeight=20.sp)

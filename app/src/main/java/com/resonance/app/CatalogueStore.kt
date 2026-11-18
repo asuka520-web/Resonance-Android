@@ -79,8 +79,8 @@ object CatalogueCodec {
             descriptors=(0 until descriptors.length()).map {descriptors.getString(it)}.filter {it in RecordingDescriptors.allowed}.toSet())
     } catch (_: Exception) { null }
     fun normalizeGenre(value: String): String = when (val key = value.trim().lowercase(Locale.ROOT)) {
-        "hip-hop", "hiphop" -> "hip hop"
-        "rhythm and blues", "rnb" -> "r&b"
+        "hip-hop", "hiphop", "rap/hip hop", "rap / hip hop", "hip hop/rap", "hip-hop/rap" -> "hip hop"
+        "rhythm and blues", "rnb", "r & b" -> "r&b"
         "流行"->"pop";"摇滚"->"rock";"民谣"->"folk";"爵士"->"jazz";"电子"->"electronic";"古典"->"classical"
         "乡村"->"country";"灵魂乐"->"soul";"金属"->"metal";"说唱", "嘻哈"->"hip hop";"节奏布鲁斯"->"r&b"
         else -> key
@@ -124,7 +124,13 @@ object CatalogueStore {
     fun scoreEpoch(context:Context,scope:String)=library(context,scope).getLong("scoreEpoch",0)
     fun manualScores(context:Context,scope:String):Map<String,Double> = try {
         val json=JSONObject(library(context,scope).getString("manualScores","{}")?:"{}")
-        json.keys().asSequence().mapNotNull {key->json.optDouble(key).takeIf {it.isFinite()}?.coerceIn(-6.0,6.0)?.let {key to it}}.toMap()
+        val scores = mutableMapOf<String, Double>()
+        for (key in json.keys()) {
+            val value = json.optDouble(key)
+            val label = CatalogueCodec.normalizeGenre(key)
+            if (value.isFinite() && label.isNotBlank()) scores[label] = (scores[label] ?: 0.0) + value.coerceIn(-6.0,6.0)
+        }
+        scores.mapValues {it.value.coerceIn(-6.0,6.0)}
     }catch(_:Exception){emptyMap()}
     fun saveManualScores(context:Context,scope:String,scores:Map<String,Double>) {
         library(context,scope).edit().putString("manualScores",JSONObject(scores).toString()).apply()
