@@ -4,14 +4,18 @@ import android.graphics.BitmapFactory
 import android.util.LruCache
 import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,6 +32,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -47,9 +52,13 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -104,13 +113,88 @@ fun Glyph(type: ResonanceGlyph, modifier: Modifier = Modifier.size(24.dp), color
     }
 }
 
+@Composable
+private fun GlassNavigation(tab: Int, onTab: (Int) -> Unit) {
+    val destinations = listOf("为你" to ResonanceGlyph.HOME, "发现" to ResonanceGlyph.SEARCH,
+        "收藏" to ResonanceGlyph.LIBRARY, "我的" to ResonanceGlyph.PERSON)
+    GlassSurface(
+        Modifier.navigationBarsPadding().padding(start = 12.dp, end = 12.dp, bottom = 5.dp).fillMaxWidth(),
+        21.dp, Panel, 6.dp
+    ) {
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val indicatorOffset = animateDpAsState(
+                targetValue = maxWidth * ((tab + .5f) / destinations.size) - 23.dp,
+                animationSpec = spring(Spring.DampingRatioNoBouncy, Spring.StiffnessMediumLow),
+                label = "selected tab"
+            )
+            GlassSurface(
+                Modifier.offset { IntOffset(indicatorOffset.value.roundToPx(), 5.dp.roundToPx()) }
+                    .size(width = 46.dp, height = 28.dp),
+                14.dp, Selected
+            ) {}
+            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).selectableGroup()) {
+                destinations.forEachIndexed { index, (label, icon) ->
+                    val active = tab == index
+                    val interaction = remember { MutableInteractionSource() }
+                    Box(
+                        Modifier.weight(1f).selectable(active, interactionSource = interaction, indication = null,
+                            role = Role.Tab, onClick = {onTab(index)}).padding(vertical = 5.dp),
+                        contentAlignment = Alignment.TopCenter
+                    ) {
+                        Column(
+                            Modifier.pressMotion(interaction, .90f),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Box(Modifier.height(28.dp), contentAlignment = Alignment.Center) {
+                                Glyph(icon, Modifier.size(20.dp), if(active) Accent else Muted)
+                            }
+                            Text(label, fontSize = 11.sp, color = if(active) Accent else Muted)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private val resonanceWordmark = buildAnnotatedString {
+    append("Resonance")
+    append(" ")
+    withStyle(SpanStyle(color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Medium)) {
+        append("by Ardolie")
+    }
+}
+
+@Composable
+private fun ListeningAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, outlined: Boolean = false) {
+    val interaction = remember { MutableInteractionSource() }
+    val animated = modifier.pressMotion(interaction)
+    if(outlined) {
+        OutlinedButton(onClick, animated, interactionSource = interaction, contentPadding = PaddingValues(horizontal = 8.dp)) {
+            Text(text, fontSize = 13.sp)
+        }
+    } else {
+        Button(onClick, animated, interactionSource = interaction, colors = ButtonDefaults.buttonColors(containerColor = Raised, contentColor = Accent)) {
+            Text(text)
+        }
+    }
+}
+
+@Composable
+private fun PlaybackChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    FilterChip(selected, onClick, modifier = Modifier.pressMotion(interaction),
+        label = {Text(label, fontSize = 11.sp)}, interactionSource = interaction)
+}
+
 private object CoverMemory {
     val images = object : LruCache<String, ImageBitmap>(12*1024) {
         override fun sizeOf(key: String, value: ImageBitmap) = value.width * value.height * 4 / 1024
     }
 }
 @Composable
-fun AlbumCover(song: QqCatalogueTrack?, modifier: Modifier = Modifier) {
+private fun rememberArtwork(song: QqCatalogueTrack?): ImageBitmap? {
     val url = song?.let(CatalogueStore::artwork)
     var bitmap by remember(url) { mutableStateOf(url?.let { CoverMemory.images.get(it) }) }
     LaunchedEffect(url) {
@@ -128,8 +212,18 @@ fun AlbumCover(song: QqCatalogueTrack?, modifier: Modifier = Modifier) {
             } catch(_:Exception){null}
         }
     }
+    return bitmap
+}
+
+@Composable
+fun AlbumCover(song: QqCatalogueTrack?, modifier: Modifier = Modifier) {
+    CoverArt(rememberArtwork(song), modifier)
+}
+
+@Composable
+private fun CoverArt(bitmap: ImageBitmap?, modifier: Modifier = Modifier) {
     Box(modifier.background(Brush.linearGradient(listOf(Color(0xFF504263),Color(0xFF2A2940)))),contentAlignment=Alignment.Center) {
-        if(bitmap!=null) Image(bitmap!!,null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
+        if(bitmap!=null) Image(bitmap,null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
         else Canvas(Modifier.fillMaxSize().padding(8.dp)) {
             val r=size.minDimension*.4f
             drawCircle(Ink,r)
@@ -145,15 +239,15 @@ private fun genreName(value: String) = when(value) {
 }
 
 @Composable
-private fun ListeningCard(connected: Boolean, seed: QqCatalogueTrack?, onLogin: () -> Unit, onSimilar: () -> Unit) {
-    val shape = RoundedCornerShape(22.dp)
+private fun ListeningCard(connected: Boolean, seed: QqCatalogueTrack?, artwork: ImageBitmap?, onLogin: () -> Unit, onSimilar: () -> Unit) {
+    GlassSurface(Modifier.fillMaxWidth(), 22.dp, Selected, 6.dp, artwork) {
     Row(
-        Modifier.fillMaxWidth().clip(shape).background(Brush.linearGradient(listOf(Selected, Panel)))
-            .border(1.dp, SoftLine, shape).padding(16.dp),
+        Modifier.fillMaxWidth().padding(16.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        AlbumCover(seed, Modifier.size(88.dp).clip(RoundedCornerShape(12.dp)))
+        val coverShape = RoundedCornerShape(12.dp)
+        CoverArt(artwork, Modifier.size(88.dp).shadow(7.dp, coverShape).clip(coverShape))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             if (connected && seed != null) {
                 Text(seed.name, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -163,11 +257,14 @@ private fun ListeningCard(connected: Boolean, seed: QqCatalogueTrack?, onLogin: 
                     fontSize = 17.sp, fontWeight = FontWeight.SemiBold, lineHeight = 23.sp)
             }
             if (!connected || seed != null) {
-                Button(onClick = if (connected) onSimilar else onLogin, contentPadding = PaddingValues(horizontal = 14.dp)) {
+                val interaction = remember { MutableInteractionSource() }
+                Button(onClick = if (connected) onSimilar else onLogin, interactionSource = interaction,
+                    modifier = Modifier.pressMotion(interaction), contentPadding = PaddingValues(horizontal = 14.dp)) {
                     Text(if (connected) "相似推荐" else "连接我的 QQ 音乐", fontSize = 12.sp)
                 }
             }
         }
+    }
     }
 }
 
@@ -175,6 +272,7 @@ private fun ListeningCard(connected: Boolean, seed: QqCatalogueTrack?, onLogin: 
 private fun MiniPlayer(
     song: QqCatalogueTrack,
     player: PlayerStatus,
+    artwork: ImageBitmap?,
     onExpand: () -> Unit,
     onMode: (String) -> Unit,
     onPrevious: () -> Unit,
@@ -183,16 +281,15 @@ private fun MiniPlayer(
 ) {
     val mode = PlaybackMode.parse(player.playbackMode)
     val progress = if (player.durationMs > 0) (player.positionMs.toFloat() / player.durationMs).coerceIn(0f, 1f) else 0f
-    val shape = RoundedCornerShape(16.dp)
-    Column(Modifier.padding(horizontal = 12.dp, vertical = 5.dp).fillMaxWidth().clip(shape)
-        .background(Raised).border(1.dp, SoftLine, shape)) {
+    GlassSurface(Modifier.padding(horizontal = 12.dp, vertical = 5.dp).fillMaxWidth(), 17.dp, Raised, 7.dp, artwork) {
+    Column {
         Box(Modifier.fillMaxWidth().height(2.dp).background(SoftLine)) {
             Box(Modifier.fillMaxWidth(progress).fillMaxHeight().background(Accent))
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f).heightIn(min = 48.dp).clickable(onClickLabel = "展开播放器", onClick = onExpand),
                 verticalAlignment = Alignment.CenterVertically) {
-                AlbumCover(song, Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)))
+                CoverArt(artwork, Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)))
                 Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
                     Text(song.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     val subtitle = when {
@@ -203,15 +300,18 @@ private fun MiniPlayer(
                     Text(subtitle, color = Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            Box(Modifier.sizeIn(minWidth = 42.dp, minHeight = 48.dp).clickable {onMode(mode.next().name)}
+            val modeInteraction = remember { MutableInteractionSource() }
+            Box(Modifier.sizeIn(minWidth = 42.dp, minHeight = 48.dp)
+                .clickable(interactionSource = modeInteraction, indication = null, role = Role.Button) {onMode(mode.next().name)}
                 .semantics {contentDescription = "播放模式：${mode.label}，点按切换"}, contentAlignment = Alignment.Center) {
-                Text(mode.shortLabel, color = Accent, fontSize = 10.sp)
+                Text(mode.shortLabel, modifier = Modifier.pressMotion(modeInteraction,.90f), color = Accent, fontSize = 10.sp)
             }
             CircleAction(ResonanceGlyph.PREVIOUS, "上一首", onPrevious, size = 44)
             CircleAction(if (player.playing || (player.loading && player.playRequested)) ResonanceGlyph.PAUSE else ResonanceGlyph.PLAY,
                 "播放或暂停", onToggle, accent = true, size = 44)
             CircleAction(ResonanceGlyph.NEXT, "下一首", onNext, size = 44)
         }
+    }
     }
 }
 
@@ -228,9 +328,26 @@ private fun descriptorName(value:String)=when(value){"mood:bright"->"明快";"mo
     }
 }
 @Composable private fun CircleAction(type:ResonanceGlyph,label:String,onClick:()->Unit,accent:Boolean=false,size:Int=44) {
-    Box(Modifier.size(size.dp).clip(CircleShape).background(if(accent)Accent else Color.Transparent).clickable(onClick=onClick)
-        .semantics {contentDescription=label},contentAlignment=Alignment.Center) {
-        Glyph(type,Modifier.size((size*.52f).dp),if(accent)Ink else Cream)
+    val interaction = remember { MutableInteractionSource() }
+    Box(
+        Modifier.size(size.dp).clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center
+    ) {
+        val surface = Modifier.fillMaxSize().pressMotion(interaction, .90f)
+        Box(
+            if(accent) surface.shadow(if(size > 48) 14.dp else 7.dp, CircleShape,
+                ambientColor = Accent.copy(alpha = .40f), spotColor = Accent.copy(alpha = .34f))
+                .clip(CircleShape).background(Brush.linearGradient(listOf(Color(0xFFF1E6FF), Accent, Color(0xFFB29CE0))))
+            else surface,
+            contentAlignment = Alignment.Center
+        ) {
+            if(accent) {
+                Crossfade(type, animationSpec = tween(135), label = "play state") { glyph ->
+                    Glyph(glyph, Modifier.size((size * .52f).dp), Ink)
+                }
+            } else Glyph(type, Modifier.size((size * .52f).dp), Cream)
+        }
     }
 }
 @Composable private fun TrackRow(song:QqCatalogueTrack, labels:Set<String>, onClick:()->Unit, current:Boolean=false, note:String="", genre:CatalogueGenre?=null,onDetails:(()->Unit)?=null) {
@@ -293,6 +410,7 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
     var surpriseEnabled by remember {mutableStateOf(settings.getBoolean("qq_surprise_enabled",true))}
     val current=library.allTracks.firstOrNull {it.mid==player.mid}
     val seed=current ?: library.favorites.firstOrNull {library.genres[it.mid]?.labels?.isNotEmpty()==true} ?: library.favorites.firstOrNull()
+    val seedArtwork=rememberArtwork(seed)
     val connected=library.accountScope.isNotBlank()
     val notice=listOfNotNull(player.directionNotice,library.feedback,previewNotice).maxByOrNull {it.createdAt}
     LaunchedEffect(expandedPlayer,current?.mid,detailSong?.mid) {
@@ -305,30 +423,18 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
         Box(Modifier.fillMaxSize()) {
         Scaffold(containerColor=Ink,bottomBar={
             Column(Modifier.background(Ink)) {
-                if(current!=null) MiniPlayer(current,player,{expandedPlayer=true},onPlaybackMode,onPrevious,onToggle,onNext)
-                Row(Modifier.fillMaxWidth().navigationBarsPadding().heightIn(min=58.dp).selectableGroup(),
-                    horizontalArrangement=Arrangement.SpaceAround) {
-                    listOf("为你" to ResonanceGlyph.HOME,"发现" to ResonanceGlyph.SEARCH,"收藏" to ResonanceGlyph.LIBRARY,"我的" to ResonanceGlyph.PERSON).forEachIndexed {i,item ->
-                        val active=tab==i
-                        Column(Modifier.weight(1f).selectable(active,role=Role.Tab,onClick={tab=i}).padding(vertical=5.dp),horizontalAlignment=Alignment.CenterHorizontally,
-                            verticalArrangement=Arrangement.spacedBy(4.dp)) {
-                            Box(Modifier.size(width=46.dp,height=27.dp).clip(CircleShape).background(if(active)Selected else Color.Transparent),
-                                contentAlignment=Alignment.Center) {
-                                Glyph(item.second,Modifier.size(20.dp),if(active)Accent else Muted)
-                            }
-                            Text(item.first,fontSize=11.sp,color=if(active)Accent else Muted)
-                        }
-                    }
-                }
+                if(current!=null) MiniPlayer(current,player,seedArtwork,{expandedPlayer=true},onPlaybackMode,onPrevious,onToggle,onNext)
+                GlassNavigation(tab) {tab=it}
             }
         }) {padding ->
-            LazyColumn(Modifier.fillMaxSize().padding(padding),state=listState,contentPadding=PaddingValues(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            Box(Modifier.fillMaxSize().padding(padding)) {
+            LazyColumn(Modifier.fillMaxSize(),state=listState,contentPadding=PaddingValues(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                 item {
                     Row(Modifier.fillMaxWidth().padding(bottom=6.dp),verticalAlignment=Alignment.CenterVertically) {
-                        Glyph(ResonanceGlyph.WAVE,Modifier.size(27.dp),Accent)
-                        Text("共鸣",fontSize=23.sp,fontWeight=FontWeight.SemiBold,letterSpacing=1.sp,modifier=Modifier.padding(start=6.dp))
-                        Spacer(Modifier.weight(1f))
-                        Row(Modifier.clip(CircleShape).background(Panel).clickable {if(!connected)onLogin() else tab=3}.padding(horizontal=12.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
+                        Glyph(ResonanceGlyph.WAVE,Modifier.size(23.dp),Accent)
+                        Text(resonanceWordmark, fontSize = 21.sp, fontWeight = FontWeight.SemiBold, lineHeight = 23.sp,
+                            modifier = Modifier.weight(1f).padding(start = 5.dp, end = 8.dp), maxLines = 2)
+                        Row(Modifier.clip(CircleShape).background(Panel).clickable {if(!connected)onLogin() else tab=3}.padding(horizontal=10.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
                             Box(Modifier.size(5.dp).clip(CircleShape).background(if(connected)Accent else Muted))
                             Text(if(connected)"QQ 音乐已连接" else "连接 QQ 音乐",fontSize=10.sp,color=Muted,modifier=Modifier.padding(start=6.dp))
                         }
@@ -336,7 +442,7 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                 }
                 if(tab==0) {
                     item {
-                        ListeningCard(connected,seed,onLogin,{seed?.let {QqLibrary.similar(it.mid)}})
+                        ListeningCard(connected,seed,seedArtwork,onLogin,{seed?.let {QqLibrary.similar(it.mid)}})
                     }
                     if(library.syncing || library.analyzing) item {
                         LinearProgressIndicator(modifier=Modifier.fillMaxWidth().height(2.dp),color=Accent,trackColor=SoftLine)
@@ -344,13 +450,9 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                     }
                     if(connected) item {
                         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick=onSurprise,modifier=Modifier.weight(1f),contentPadding=PaddingValues(horizontal=8.dp)) {
-                                Text("随心听",fontSize=13.sp)
-                            }
-                            OutlinedButton(onClick={draftIntent=library.intent;scoreTab=false;showIntent=true},
-                                modifier=Modifier.weight(1f),contentPadding=PaddingValues(horizontal=8.dp)) {
-                                Text("调整这次选歌",fontSize=13.sp)
-                            }
+                            ListeningAction("随心听",onSurprise,Modifier.weight(1f),outlined=true)
+                            ListeningAction("调整这次选歌",{draftIntent=library.intent;scoreTab=false;showIntent=true},
+                                Modifier.weight(1f),outlined=true)
                         }
                         if(library.intent.active)Text("想听：${library.intent.wanted.sorted().joinToString {genreName(it)}.ifBlank {"不限"}}\n避开：${library.intent.excluded.sorted().joinToString {genreName(it)}.ifBlank {"不限"}}",
                             color=Muted,fontSize=11.sp,lineHeight=19.sp)
@@ -532,14 +634,17 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                     item {Text("RESONANCE · 共鸣 ${BuildConfig.VERSION_NAME}",color=Muted.copy(alpha=.5f),fontSize=10.sp,letterSpacing=1.5.sp,modifier=Modifier.padding(vertical=18.dp))}
                 }
             }
+            DirectionChangeBanner(notice, Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp))
+            }
         }
-        DirectionChangeBanner(notice,Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom=154.dp))
         }
         if(expandedPlayer && current!=null) ModalBottomSheet(onDismissRequest={expandedPlayer=false},containerColor=Ink,
             sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
             Box {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal=30.dp).navigationBarsPadding(),horizontalAlignment=Alignment.CenterHorizontally) {
-                AlbumCover(current,Modifier.widthIn(max=232.dp).fillMaxWidth(.9f).aspectRatio(1f).clip(RoundedCornerShape(22.dp)))
+                val coverShape = RoundedCornerShape(22.dp)
+                CoverArt(seedArtwork,Modifier.widthIn(max=232.dp).fillMaxWidth(.9f).aspectRatio(1f)
+                    .shadow(15.dp,coverShape).clip(coverShape))
                 Row(Modifier.fillMaxWidth().padding(top=16.dp),verticalAlignment=Alignment.CenterVertically,
                     horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(5.dp)) {
@@ -563,20 +668,22 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                 val labels=library.genres[current.mid]?.labels.orEmpty()
                 if(labels.isNotEmpty())CompleteTagRow(labels)
                 else Text(GenreLookupPolicy.description(library.genres[current.mid]),color=Muted,fontSize=12.sp)
-                Button(onClick={QqLibrary.similar(current.mid);expandedPlayer=false;tab=0},modifier=Modifier.fillMaxWidth().padding(top=8.dp),
-                    colors=ButtonDefaults.buttonColors(containerColor=Raised,contentColor=Accent)) {Text("相似推荐")}
+                ListeningAction("相似推荐",{QqLibrary.similar(current.mid);expandedPlayer=false;tab=0},
+                    Modifier.fillMaxWidth().padding(top=8.dp))
                 Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
                     TextButton(onClick={openFeedback(current,true)}){Text("多来这种")}
                     TextButton(onClick={openFeedback(current,false)}){Text("暂时少放")}
                 }
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Panel).padding(12.dp)) {
-                    Text("播放模式 · 队列 ${player.queueSize} 首",color=Muted,fontSize=12.sp)
-                    FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(5.dp)) {
-                        PlaybackMode.entries.forEach {mode ->
-                            FilterChip(selected=player.playbackMode==mode.name,onClick={onPlaybackMode(mode.name)},label={Text(mode.label,fontSize=11.sp)})
+                GlassSurface(Modifier.fillMaxWidth(), 16.dp, Panel) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("播放模式 · 队列 ${player.queueSize} 首",color=Muted,fontSize=12.sp)
+                        FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(5.dp)) {
+                            PlaybackMode.entries.forEach {mode ->
+                                PlaybackChip(mode.label, player.playbackMode == mode.name) {onPlaybackMode(mode.name)}
+                            }
                         }
+                        PlaybackRangeChoices(player.playbackRange,onPlaybackRange)
                     }
-                    PlaybackRangeChoices(player.playbackRange,onPlaybackRange)
                 }
                 TextButton(onClick={expandedPlayer=false;showDirectionHistory=true}){Text("最近换向记录")}
                 Text(if(player.excerpt)"试听片段 · 暂不纳入偏好" else "QQ 音乐音源 · 后台播放",color=Muted,fontSize=11.sp,modifier=Modifier.padding(vertical=20.dp))
@@ -733,14 +840,15 @@ fun DirectionChangeBanner(notice:DirectionNotice?,modifier:Modifier=Modifier) {
         liked -> "已喜欢 · 取消收藏"
         else -> "收藏到 QQ 我喜欢"
     }
-    if(compact) IconButton(onClick={onFavorite(song.mid)},enabled=enabled,
+    val interaction = remember { MutableInteractionSource() }
+    if(compact) IconButton(onClick={onFavorite(song.mid)},enabled=enabled,interactionSource=interaction,
         modifier=Modifier.semantics {contentDescription=label}) {
-        Box(Modifier.size(40.dp).clip(CircleShape).background(if(liked)Selected else Raised),contentAlignment=Alignment.Center) {
+        Box(Modifier.size(40.dp).pressMotion(interaction,.90f).clip(CircleShape).background(if(liked)Selected else Raised),contentAlignment=Alignment.Center) {
             if(busy)CircularProgressIndicator(Modifier.size(16.dp),strokeWidth=2.dp)
             else Glyph(if(song.mid in library.favoriteUncertain)ResonanceGlyph.REFRESH else ResonanceGlyph.HEART,
                 Modifier.size(20.dp),if(liked && enabled)Accent else Muted)
         }
-    } else OutlinedButton(onClick={onFavorite(song.mid)},enabled=enabled) {
+    } else OutlinedButton(onClick={onFavorite(song.mid)},enabled=enabled,interactionSource=interaction,modifier=Modifier.pressMotion(interaction)) {
         Glyph(ResonanceGlyph.HEART,Modifier.size(17.dp),if(liked)Accent else Muted)
         Spacer(Modifier.width(8.dp))
         Text(label,fontSize=12.sp)
@@ -751,7 +859,7 @@ fun DirectionChangeBanner(notice:DirectionNotice?,modifier:Modifier=Modifier) {
     Column {
         Text("随机与循环范围",fontSize=12.sp,color=Muted)
         FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-            PlaybackRange.entries.forEach {range ->FilterChip(selected==range.name,{onSelect(range.name)},label={Text(range.label,fontSize=11.sp)})}
+            PlaybackRange.entries.forEach {range -> PlaybackChip(range.label, selected == range.name) {onSelect(range.name)}}
         }
     }
 }

@@ -52,6 +52,7 @@ class ResonanceScreenTest {
     }
     @Test fun disconnectedHomeOffersConnectionWithoutDebugFieldsOrHiddenProviderNames() {
         show(LibraryState())
+        compose.onNodeWithText("Resonance by Ardolie").assertIsDisplayed()
         compose.onNodeWithText("连接我的 QQ 音乐").assertIsDisplayed()
         compose.onAllNodesWithText("MusicBrainz",substring=true).assertCountEquals(0)
         compose.onAllNodesWithText("MEDIA_ID",substring=true).assertCountEquals(0)
@@ -72,6 +73,7 @@ class ResonanceScreenTest {
         val labels=listOf("pop","r&b","jazz")
         val genres=songs.mapIndexed {i,song -> song.mid to CatalogueGenre(song.mid,setOf(labels[i]),"qq-song-detail","test fixture",0,Long.MAX_VALUE)}.toMap()
         show(LibraryState(accountScope="test-only",favorites=songs,genres=genres),PlayerStatus(mid="test0",playing=true,positionMs=50000,durationMs=200000))
+        compose.onNodeWithText("Resonance by Ardolie").assertIsDisplayed()
         compose.onNodeWithText("相似推荐").assertIsDisplayed()
         compose.onNodeWithText("随心听").assertIsDisplayed()
         compose.onNodeWithText("当前标签分数").assertIsDisplayed()
