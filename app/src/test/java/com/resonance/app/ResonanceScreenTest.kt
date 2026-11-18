@@ -234,6 +234,34 @@ class ResonanceScreenTest {
         assertEquals(PlaybackMode.SINGLE.name,status.value.playbackMode)
         capture("player-modes-test-data")
     }
+
+    @Test fun playerSharedArtworkOpensAndBackReturnsFocusToTheDock() {
+        val song = QqCatalogueTrack("shared", "shared", "共享元素测试歌曲", "歌手", "", 200000)
+        var previous = 0
+        val resolver = compose.activity.contentResolver
+        val setting = Settings.Global.ANIMATOR_DURATION_SCALE
+        val previousScale = Settings.Global.getFloat(resolver, setting, 1f)
+        Settings.Global.putFloat(resolver, setting, 1f)
+        try {
+            // Run the production artwork transition without software screenshot capture.
+            compose.setContent {
+                ResonanceScreen(LibraryState(accountScope = "test", favorites = listOf(song)),
+                    PlayerStatus(mid = song.mid, durationMs = song.durationMs),
+                    {}, {}, {}, {}, {}, { previous++ }, {}, {}, {}, {}, {})
+            }
+            compose.onAllNodesWithText(song.name).onLast().performClick()
+            compose.onAllNodesWithContentDescription("播放或暂停").assertCountEquals(1)
+            compose.onNodeWithContentDescription("上一首").performScrollTo().performClick()
+            assertEquals(1, previous)
+
+            compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+            compose.onNodeWithContentDescription("上一首").assertDoesNotExist()
+            compose.onNodeWithContentDescription("播放或暂停").assertIsDisplayed()
+            compose.onNodeWithText("为你", useUnmergedTree = true).assertIsDisplayed()
+        } finally {
+            Settings.Global.putFloat(resolver, setting, previousScale)
+        }
+    }
     @Test fun sessionIntentSheetProducesIndependentWantedAndExcludedTagSets() {
         var selected=ListeningIntent()
         setContent {ResonanceScreen(LibraryState(accountScope="test"),PlayerStatus(),{},{},{},{},{},{},{},{},{},{},{},onIntent={selected=it})}
