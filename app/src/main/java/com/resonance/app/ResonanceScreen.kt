@@ -4,6 +4,10 @@ import android.graphics.BitmapFactory
 import android.util.LruCache
 import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -44,6 +48,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.liveRegion
@@ -783,13 +788,22 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                     PlaybackChip("选歌条件", !scoreTab) { scoreTab = false }
                     PlaybackChip("标签分数", scoreTab) { scoreTab = true }
                 }
-                if (scoreTab) {
-                    GenreScorePanel(library)
-                    OutlineButton("清除当前所有分数", { showScoreReset = true }, Modifier.fillMaxWidth())
-                } else {
-                    IntentEditor(library.genres, draftIntent, { draftIntent = it },
-                        { onIntent(draftIntent); showIntent = false },
-                        { onIntent(ListeningIntent()); showIntent = false })
+                val animate = LocalResonanceMotion.current
+                val slide = with(LocalDensity.current) { if (animate) Motion.SecondaryOffsetDp.dp.roundToPx() else 0 }
+                AnimatedContent(scoreTab, label = "score sections", transitionSpec = {
+                    val spec = if (animate) tween<Float>(Motion.SecondaryPage, easing = Motion.responsive) else snap()
+                    (fadeIn(spec) + slideInVertically(if (animate) tween(Motion.SecondaryPage, easing = Motion.responsive) else snap()) {
+                        if (targetState) slide else -slide
+                    }) togetherWith (fadeOut(spec) + slideOutVertically(if (animate) tween(Motion.SecondaryPage, easing = Motion.responsive) else snap()) {
+                        if (targetState) -slide else slide
+                    })
+                }) { scoresPage ->
+                    Column(verticalArrangement = Arrangement.spacedBy(Space.x3)) {
+                        if (scoresPage) TagScores(library) { showScoreReset = true }
+                        else IntentEditor(library.genres, draftIntent, { draftIntent = it },
+                            { onIntent(draftIntent); showIntent = false },
+                            { onIntent(ListeningIntent()); showIntent = false })
+                    }
                 }
             }
         }
@@ -913,24 +927,6 @@ fun DirectionChangeBanner(notice:DirectionNotice?,modifier:Modifier=Modifier) {
 }
 private fun scoreText(value:Double)=String.format(java.util.Locale.ROOT,"%+.1f",value)
 private fun directionStateName(state:String)=when(state){"PLAYING"->"已确认播放";"FAILED"->"播放失败";"CANCELED"->"已取消";"UNCONFIRMED"->"未确认播放";else->"正在切换"}
-@Composable private fun GenreScorePanel(library:LibraryState) {
-    val scores=remember(library.allTracks,library.genres,library.scoreSignals,library.manualScores){library.genreScores()}
-    var showCalculation by remember {mutableStateOf(false)}
-    Text("综合分越高，随机播放和推荐时越容易选到该曲风。",fontSize=12.sp,color=Muted,lineHeight=20.sp)
-    Row(Modifier.fillMaxWidth()) {Text("标签",Modifier.weight(1f),fontSize=12.sp);Text("近期 / 长期 / 综合",fontSize=12.sp,color=Muted)}
-    if(scores.isEmpty())Text("暂没有可用曲风标签。",color=Muted,fontSize=13.sp)
-    scores.forEach {row ->
-        Row(Modifier.fillMaxWidth().padding(vertical=7.dp),verticalAlignment=Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {Text(genreName(row.label),fontSize=14.sp);Text("${row.observations} 次记录"+if(row.manual!=0.0)" · 主动 ${scoreText(row.manual)}" else "",fontSize=10.sp,color=Muted)}
-            Text("${scoreText(row.recent)} / ${scoreText(row.longTerm)} / ${scoreText(row.combined)}",fontSize=12.sp,color=if(row.combined<0)ResonancePalette.signal else Accent)
-        }
-    }
-    TextButton(onClick={showCalculation=!showCalculation},contentPadding=PaddingValues(horizontal=0.dp)) {
-        Text(if(showCalculation)"收起计分说明" else "分数怎么算",fontSize=12.sp)
-    }
-    if(showCalculation) Text("听完 +2，中途切歌 −1，有效快跳 −3。多标签平分反馈。综合分包含最近 20 条的 70%、最近 500 条归一到 20 条后的 30%，再加主动反馈。",
-        fontSize=12.sp,color=Muted,lineHeight=20.sp)
-}
 @Composable
 private fun GenreScoreSummary(scores: List<GenreScore>, ticker: FrameTicker, systemMotion: Boolean,
     onAll: () -> Unit, onClear: () -> Unit) {

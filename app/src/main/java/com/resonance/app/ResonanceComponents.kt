@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.FilterChip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -530,4 +531,12 @@ internal fun GenreTile(label: String, seed: String, selected: Boolean, onClick: 
         Text(label, color = if (selected) ResonancePalette.signal else ResonancePalette.sand,
             fontSize = TypeSize.caption, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
+}
+
+@Composable
+internal fun ResonanceChip(text: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    FilterChip(selected, onClick, { Text(text, fontSize = TypeSize.caption) },
+        modifier = Modifier.heightIn(min = Space.touch).resonancePress(interaction), enabled = enabled,
+        shape = CircleShape, interactionSource = interaction)
 }
