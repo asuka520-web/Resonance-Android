@@ -124,7 +124,7 @@ fun Glyph(type: ResonanceGlyph, modifier: Modifier = Modifier.size(Space.x6), co
 private fun PlaybackChip(label: String, selected: Boolean, onClick: () -> Unit) =
     ResonanceChip(label, selected, onClick = onClick)
 
-private object CoverMemory {
+internal object CoverMemory {
     val images = object : LruCache<String, ImageBitmap>(12 * 1024) {
         override fun sizeOf(key: String, value: ImageBitmap) =
             (value.width * value.height * 4 + 1023) / 1024
@@ -155,21 +155,23 @@ private object CoverMemory {
                     if (output.size() + bytesRead > 1_048_576) return@use null
                     output.write(buffer, 0, bytesRead)
                 }
-                val data = output.toByteArray()
-                BitmapFactory.decodeByteArray(data, 0, data.size)?.let { bitmap ->
-                    try {
-                        CoverThumbnails.save(cacheDir, album, data)
-                    } catch (_: SecurityException) {
-                        // An unavailable thumbnail cache leaves ordinary artwork usable.
-                    }
-                    bitmap.asImageBitmap()
-                }
+                decode(output.toByteArray(), cacheDir, album)
             }
         } finally {
             connection.disconnect()
         }
     } catch (_: Exception) {
         null
+    }
+
+    fun decode(data: ByteArray, cacheDir: java.io.File, album: String): ImageBitmap? {
+        val bitmap = BitmapFactory.decodeByteArray(data, 0, data.size) ?: return null
+        try {
+            CoverThumbnails.save(cacheDir, album, bitmap)
+        } catch (_: Exception) {
+            // A failed thumbnail write must not discard the decoded cover.
+        }
+        return bitmap.asImageBitmap()
     }
 }
 @Composable

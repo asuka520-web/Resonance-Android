@@ -91,22 +91,14 @@ internal object CoverThumbnails {
     }
 
     @Synchronized
-    fun save(cacheDir: File, album: String, bytes: ByteArray) {
+    fun save(cacheDir: File, album: String, artwork: Bitmap) {
         val file = key(cacheDir, album) ?: return
         if (file.isFile) return
-        val dimensions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, dimensions)
-        val longest = maxOf(dimensions.outWidth, dimensions.outHeight)
-        if (longest <= 0) return
-        val options = BitmapFactory.Options().apply {
-            while (longest / inSampleSize > PixelLimit * 2) inSampleSize *= 2
-        }
-        val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return
-        val scale = (PixelLimit.toFloat() / maxOf(decoded.width, decoded.height)).coerceAtMost(1f)
-        val image = Bitmap.createScaledBitmap(decoded, (decoded.width * scale).toInt().coerceAtLeast(1),
-            (decoded.height * scale).toInt().coerceAtLeast(1), true)
         val directory = file.parentFile ?: return
         if (!directory.isDirectory && !directory.mkdirs()) return
+        val scale = (PixelLimit.toFloat() / maxOf(artwork.width, artwork.height)).coerceAtMost(1f)
+        val image = Bitmap.createScaledBitmap(artwork, (artwork.width * scale).toInt().coerceAtLeast(1),
+            (artwork.height * scale).toInt().coerceAtLeast(1), true)
         val atomicFile = AtomicFile(file)
         val sink = try { atomicFile.startWrite() } catch (_: IOException) { return }
         try {
