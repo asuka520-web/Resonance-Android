@@ -23,6 +23,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -123,6 +124,7 @@ internal object Motion {
 }
 
 internal val LocalResonanceMotion = staticCompositionLocalOf { false }
+internal val LocalSharedArtwork = staticCompositionLocalOf { true }
 
 internal class FrameTicker {
     var time by mutableLongStateOf(0L)
@@ -131,6 +133,7 @@ internal class FrameTicker {
         private set
     private var requestedUntil by mutableLongStateOf(0L)
     private var sandUntil by mutableLongStateOf(0L)
+    private val repeatingSand = mutableStateMapOf<Any, Unit>()
     private var slowFrames = 0
     private var slowWindowFrames = 0
     var reducedQuality by mutableStateOf(false)
@@ -143,6 +146,9 @@ internal class FrameTicker {
 
     fun cancelSand() { sandUntil = 0L }
     fun hasSandWork(): Boolean = time < sandUntil
+    fun setSandLoop(owner: Any, active: Boolean) {
+        if (active) repeatingSand[owner] = Unit else repeatingSand.remove(owner)
+    }
 
     fun reportFrame(costNanos: Long, windowFrame: Boolean = false) {
         if (reducedQuality) return
@@ -153,17 +159,21 @@ internal class FrameTicker {
     }
 
     suspend fun run(continuous: Boolean, drawSand: Boolean) {
-        val infiniteAnimation = if (continuous) coroutineContext[InfiniteAnimationPolicy] else null
-        snapshotFlow { maxOf(requestedUntil, if (drawSand) sandUntil else 0L) }.collectLatest { requested ->
+        val infiniteAnimation = coroutineContext[InfiniteAnimationPolicy]
+        snapshotFlow {
+            val repeat = repeatingSand.isNotEmpty()
+            val frameSand = drawSand || repeat
+            Triple(maxOf(requestedUntil, if (frameSand) sandUntil else 0L), continuous || repeat, frameSand)
+        }.collectLatest { (requested, loop, frameSand) ->
             var lastFrame = 0L
             val advance: (Long) -> Unit = { frame ->
                 if (lastFrame != 0L) time += (frame - lastFrame).coerceAtLeast(0)
                 lastFrame = frame
                 // Small tolerance keeps every other tick at a nominal 60 Hz.
-                if (drawSand && (!reducedQuality || time - sandTime >= Motion.ReducedFrameNanos - Motion.NanosPerMs ||
-                        (!continuous && time >= requested))) sandTime = time
+                if (frameSand && (!reducedQuality || time - sandTime >= Motion.ReducedFrameNanos - Motion.NanosPerMs ||
+                        (!loop && time >= requested))) sandTime = time
             }
-            while (continuous || time < requested) {
+            while (loop || time < requested) {
                 if (infiniteAnimation == null || time < requested) withFrameNanos(advance)
                 else infiniteAnimation.onInfiniteOperation { withFrameNanos(advance) }
             }

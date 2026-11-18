@@ -77,7 +77,7 @@ fun RecommendationPanel(current: SongInfo?, snapshot: MusicSnapshot) {
     val ticker = remember { FrameTicker() }
     val animate = LocalResonanceMotion.current
     val searchLoading = busy && matches == null
-    RunResonanceFrames(ticker, searchLoading && animate, continuous = true, drawSand = true)
+    RunResonanceFrames(ticker, searchLoading && animate, continuous = false, drawSand = false)
     when {
         searchLoading -> LoadingState(message, ticker, visible = true)
         message.startsWith("查询未完成") -> ErrorState("查询未完成", message.substringAfter("：", message),
@@ -88,8 +88,8 @@ fun RecommendationPanel(current: SongInfo?, snapshot: MusicSnapshot) {
         Text(if (showLibrary) "收起本机曲库" else "补齐本机其他歌曲曲风")
     }
     if (showLibrary) {
-        Column(Modifier.fillMaxWidth().heightIn(max = 280.dp).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.fillMaxWidth().heightIn(max = Space.legacyListHeight).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(Space.statusDot)) {
             if (songs.isEmpty()) EmptyState("请先在 QQ 音乐播放几首歌，让应用识别歌曲信息。")
             songs.forEach { song ->
                 val tags = TrackFeatureStore.get(context, song)?.genres.orEmpty()
@@ -136,7 +136,7 @@ fun RecommendationPanel(current: SongInfo?, snapshot: MusicSnapshot) {
         ResonanceDialog("核对「${selectedSong.name}」的录音版本", { if (!busy) matches = null }) {
                 val dialogTicker = remember { FrameTicker() }
                 val dialogMotion = LocalResonanceMotion.current
-                RunResonanceFrames(dialogTicker, busy && dialogMotion, continuous = true, drawSand = true)
+                RunResonanceFrames(dialogTicker, busy && dialogMotion, continuous = false, drawSand = false)
                 Column(Modifier.heightIn(max = Space.x8 * 12).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(Space.x2)) {
                     Text("核对歌手、专辑、时长与现场/混音等版本。核对按钮会继续读取该录音的公开曲风；曲库可能未收录曲风。")

@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 
@@ -61,6 +62,32 @@ internal object Space {
     val heroCover = 96.dp
     val thin = 1.dp
     val focus = 1.5.dp
+    val progressLine = 2.dp
+    val logoStroke = 3.dp
+    val opticalInset = 5.dp
+    val statusDot = 6.dp
+    val connectionDot = 7.dp
+    val wordmarkGap = 9.dp
+    val scoreTickHeight = 10.dp
+    val noticeInset = 13.dp
+    val scoreBottomInset = 14.dp
+    val heartGlyph = 17.dp
+    val sectionGap = 18.dp
+    val navGlyph = 21.dp
+    val nextGlyph = 22.dp
+    val shuffleGlyph = 23.dp
+    val navHalfWidth = 28.dp
+    val navPillHeight = 30.dp
+    val favoriteDisk = 40.dp
+    val miniHeight = 60.dp
+    val trackHeight = 68.dp
+    val legacyListHeight = 280.dp
+    val restJitter = 1.2.dp
+    val largeGrain = 1.3.dp
+    val shuffleStroke = 1.75.dp
+    val smallGrain = .5.dp
+    val looseGrain = .6.dp
+    val mainGrain = .85.dp
 }
 
 internal object TypeSize {
@@ -72,6 +99,16 @@ internal object TypeSize {
     val title = 22.sp
     val song = 26.sp
     val score = 30.sp
+    val compactLine = 17.sp
+    val lead = 18.sp
+    val mediumLine = 19.sp
+    val readingLine = 20.sp
+    val paragraphLine = 21.sp
+    val panelTitle = 24.sp
+    val songLine = 28.08.sp
+    val largeNumber = 32.sp
+    val wordmarkTracking = 1.5.sp
+    val logoTracking = (-.02).em
 }
 
 internal object Corners {
@@ -82,6 +119,8 @@ internal object Corners {
     val dock = RoundedCornerShape(28.dp)
     val sheet = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
     val plate = RoundedCornerShape(32.dp)
+    val tag = RoundedCornerShape(6.dp)
+    val notice = RoundedCornerShape(22.dp)
 }
 
 private val palette = with(ResonancePalette) {
@@ -119,7 +158,7 @@ internal fun ResonanceTheme(content: @Composable () -> Unit) {
             bodyMedium = baseTypography.bodyMedium.copy(fontFamily = font, fontFeatureSettings = "tnum")
         )
     }
-    val sand = remember { SandBudget() }
+    val sand = LocalSandBudget.current ?: remember { SandBudget() }
     CompositionLocalProvider(LocalBricolage provides font, LocalSandBudget provides sand) {
         MaterialTheme(colorScheme = palette, typography = typography, shapes = shapes, content = content)
     }

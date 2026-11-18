@@ -97,7 +97,7 @@ internal fun NowPlaying(
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
                         Column(Modifier.weight(1f)) {
-                            Text(song.name, style = resonanceTextStyle(TypeSize.song, FontWeight.ExtraBold, true),
+                            Text(song.name, color = ResonancePalette.sand, style = resonanceTextStyle(TypeSize.song, FontWeight.ExtraBold, true),
                                 maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text(song.artist, color = ResonancePalette.muted, fontSize = TypeSize.body)
                         }

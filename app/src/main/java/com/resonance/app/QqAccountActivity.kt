@@ -125,6 +125,8 @@ class QqAccountActivity : ComponentActivity() {
             }
             fun closeLogin() { showLogin = false; CookieManager.getInstance().flush(); refreshAccount() }
             BackHandler(showLogin) { closeLogin() }
+            val sandBudget = remember { SandBudget() }
+            CompositionLocalProvider(LocalSandBudget provides sandBudget) {
             ResonanceScreen(library, player,
                 onLogin = { controller?.pause(); showLogin = true }, onSync = { QqLibrary.syncFavorites() }, onPlay = ::play,
                 onToggle = {
@@ -209,6 +211,7 @@ class QqAccountActivity : ComponentActivity() {
                     }
                 }
             }
+            }
         }
     }
     override fun onResume() { super.onResume(); refreshAccount() }
@@ -219,7 +222,7 @@ internal fun AccountSheetHeader(host: String, loading: Boolean, failed: Boolean,
     onClose: () -> Unit, onAuthorize: () -> Unit, onRetry: () -> Unit) {
     val ticker = remember { FrameTicker() }
     val animate = LocalResonanceMotion.current
-    RunResonanceFrames(ticker, animate && loading && !failed, continuous = true, drawSand = true)
+    RunResonanceFrames(ticker, animate && loading && !failed, continuous = false, drawSand = false)
     SectionHeader("QQ 音乐账号", onClose, "完成")
     Text("官方页面 · $host", fontSize = TypeSize.caption, color = ResonancePalette.muted,
         modifier = Modifier.padding(bottom = Space.x2))

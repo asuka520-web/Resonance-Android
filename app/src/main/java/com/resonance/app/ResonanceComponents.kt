@@ -29,6 +29,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.FilterChip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
@@ -55,6 +56,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -89,10 +92,10 @@ internal fun resonanceTextStyle(size: TextUnit, weight: FontWeight, english: Boo
 
 @Composable
 internal fun ResonanceText(
-    value: String, size: Int, modifier: Modifier = Modifier, color: Color = ResonancePalette.sand,
+    value: String, size: TextUnit, modifier: Modifier = Modifier, color: Color = ResonancePalette.sand,
     weight: FontWeight = FontWeight.Medium, english: Boolean = false, lines: Int = 1
 ) {
-    Text(value, modifier, color = color, style = resonanceTextStyle(size.sp, weight, english),
+    Text(value, modifier, color = color, style = resonanceTextStyle(size, weight, english),
         maxLines = lines, overflow = TextOverflow.Ellipsis)
 }
 
@@ -100,8 +103,8 @@ internal fun ResonanceText(
 internal fun TopBar(connected: Boolean, ticker: FrameTicker, logo: MotionFloat, visible: Boolean, onAccount: () -> Unit) {
     val animate = LocalResonanceMotion.current && visible
     val interaction = remember { MutableInteractionSource() }
-    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-        Canvas(Modifier.size(24.dp)) {
+    Row(Modifier.fillMaxWidth().heightIn(min = Space.touch), verticalAlignment = Alignment.CenterVertically) {
+        Canvas(Modifier.size(Space.x6)) {
             val time = if (animate) ticker.time else 0L
             val envelope = if (animate) logo.value(time) else 0f
             for (index in 0..3) {
@@ -109,17 +112,17 @@ internal fun TopBar(connected: Boolean, ticker: FrameTicker, logo: MotionFloat, 
                 val x = size.width * (.14f + index * .21f)
                 val half = size.height * height / 2
                 drawLine(ResonancePalette.signal, Offset(x, center.y - half), Offset(x, center.y + half),
-                    strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
+                    strokeWidth = Space.logoStroke.toPx(), cap = StrokeCap.Round)
             }
         }
-        Text("Resonance", Modifier.weight(1f).padding(start = 9.dp), color = ResonancePalette.sand,
-            style = resonanceTextStyle(22.sp, FontWeight.ExtraBold, english = true), letterSpacing = (-.02).em,
+        Text("Resonance", Modifier.weight(1f).padding(start = Space.wordmarkGap), color = ResonancePalette.sand,
+            style = resonanceTextStyle(TypeSize.title, FontWeight.ExtraBold, english = true), letterSpacing = TypeSize.logoTracking,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Row(Modifier.heightIn(min = 48.dp).clickable(interaction, LocalIndication.current, role = Role.Button,
+        Row(Modifier.heightIn(min = Space.touch).clickable(interaction, LocalIndication.current, role = Role.Button,
             onClick = onAccount).resonancePress(interaction),
-            horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(7.dp).background(ResonancePalette.signal, CircleShape))
-            ResonanceText(if (connected) "QQ 音乐已连接" else "连接 QQ 音乐", 12, color = ResonancePalette.muted, english = true)
+            horizontalArrangement = Arrangement.spacedBy(Space.statusDot), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(Space.connectionDot).background(ResonancePalette.signal, CircleShape))
+            ResonanceText(if (connected) "QQ 音乐已连接" else "连接 QQ 音乐", TypeSize.secondary, color = ResonancePalette.muted, english = true)
         }
     }
 }
@@ -132,7 +135,7 @@ internal fun ArtworkTransition(cover: ArtworkLoad, modifier: Modifier, shape: Ro
     var lastReady by remember { mutableStateOf(cover.image) }
     LaunchedEffect(cover) { if (!cover.pending) lastReady = cover.image }
     val image = if (animate && cover.pending) lastReady else cover.image
-    val shadow = if (dropShadow) Modifier.shadow(5.dp, shape) else Modifier
+    val shadow = if (dropShadow) Modifier.shadow(Space.opticalInset, shape) else Modifier
     if (animate) {
         AnimatedContent(image, modifier = modifier, contentAlignment = Alignment.Center, transitionSpec = {
             val spec = tween<Float>(Motion.Cover, easing = Motion.easeInOut)
@@ -167,7 +170,7 @@ internal fun Modifier.resonancePress(interaction: MutableInteractionSource): Mod
 @Composable
 private fun ActionButton(label: String, onClick: () -> Unit, modifier: Modifier, solid: Boolean, enabled: Boolean) {
     ActionButton(onClick, modifier, solid, enabled) {
-        ResonanceText(label, 14, color = LocalContentColor.current, weight = FontWeight.Bold, lines = 2)
+        ResonanceText(label, TypeSize.body, color = LocalContentColor.current, weight = FontWeight.Bold, lines = 2)
     }
 }
 
@@ -179,7 +182,7 @@ private fun ActionButton(onClick: () -> Unit, modifier: Modifier, solid: Boolean
         else Modifier.border(Space.focus, if (enabled) ResonancePalette.sand else ResonancePalette.muted, CircleShape)
     Box(modifier.heightIn(min = Space.touch).clickable(interaction, LocalIndication.current, enabled = enabled,
         role = Role.Button, onClick = onClick)
-        .resonancePress(interaction).clip(CircleShape).then(surface).padding(horizontal = 12.dp, vertical = 5.dp),
+        .resonancePress(interaction).clip(CircleShape).then(surface).padding(horizontal = Space.x3, vertical = Space.opticalInset),
         contentAlignment = Alignment.Center) {
         val textColor = if (!enabled) ResonancePalette.muted else if (solid) ResonancePalette.ink else ResonancePalette.sand
         CompositionLocalProvider(LocalContentColor provides textColor) {
@@ -191,11 +194,11 @@ private fun ActionButton(onClick: () -> Unit, modifier: Modifier, solid: Boolean
 @Composable
 internal fun TextAction(label: String, onClick: () -> Unit, color: Color, description: String = label, enabled: Boolean = true) {
     val interaction = remember { MutableInteractionSource() }
-    Box(Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+    Box(Modifier.sizeIn(minWidth = Space.touch, minHeight = Space.touch)
         .clickable(interaction, LocalIndication.current, enabled = enabled, role = Role.Button, onClick = onClick)
         .resonancePress(interaction)
-        .semantics { contentDescription = description }.padding(horizontal = 5.dp), contentAlignment = Alignment.Center) {
-        ResonanceText(label, 13, color = color, english = true)
+        .semantics { contentDescription = description }.padding(horizontal = Space.opticalInset), contentAlignment = Alignment.Center) {
+        ResonanceText(label, TypeSize.action, color = color, english = true)
     }
 }
 
@@ -203,10 +206,10 @@ internal fun TextAction(label: String, onClick: () -> Unit, color: Color, descri
 @Composable
 internal fun ScoreCard(score: GenreScore, maxAbs: Double, textWidth: Dp, ticker: FrameTicker,
     systemMotion: Boolean, modifier: Modifier) {
-    Column(modifier.clip(RoundedCornerShape(18.dp)).background(ResonancePalette.surface)
-        .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        ResonanceText(genreName(score.label), 12, color = ResonancePalette.muted, english = true, lines = 2)
+    Column(modifier.clip(Corners.card).background(ResonancePalette.surface)
+        .padding(start = Space.x3, end = Space.x3, top = Space.x3, bottom = Space.scoreBottomInset),
+        verticalArrangement = Arrangement.spacedBy(Space.x1)) {
+        ResonanceText(genreName(score.label), TypeSize.secondary, color = ResonancePalette.muted, english = true, lines = 2)
         Box(Modifier.weight(1f))
         val number = scoreMotion(score.combined.toFloat(), Motion.Score, Motion.settle, ticker, systemMotion)
         ScoreNumber(number, maxAbs, textWidth)
@@ -217,17 +220,17 @@ internal fun ScoreCard(score: GenreScore, maxAbs: Double, textWidth: Dp, ticker:
 
 @Composable
 internal fun SignedScoreBar(bar: State<Float>, modifier: Modifier = Modifier) {
-        Canvas(modifier.fillMaxWidth().height(10.dp)) {
+        Canvas(modifier.fillMaxWidth().height(Space.scoreTickHeight)) {
             val fraction = bar.value
             val color = if (fraction < 0f) ResonancePalette.signal else ResonancePalette.sand
-            val barHeight = 4.dp.toPx()
+            val barHeight = Space.x1.toPx()
             val barY = (size.height - barHeight) / 2
             val radius = CornerRadius(barHeight / 2)
             drawRoundRect(ResonancePalette.line, Offset(0f, barY), Size(size.width, barHeight), radius)
             val length = abs(fraction) * size.width / 2
             if (length > 0) drawRoundRect(color, Offset(center.x - if (fraction < 0f) length else 0f, barY),
                 Size(length, barHeight), radius)
-            val tick = 2.dp.toPx()
+            val tick = Space.progressLine.toPx()
             drawRect(ResonancePalette.muted, Offset(center.x - tick / 2, 0f), Size(tick, size.height))
         }
 }
@@ -261,14 +264,14 @@ internal fun scoreMotion(target: Float, duration: Int, easing: Easing, ticker: F
 private fun ScoreNumber(value: State<Float>, maxAbs: Double, textWidth: Dp) {
     val tenths by remember(value) { derivedStateOf { (value.value * 10).roundToInt() } }
     val scoreLabel = remember(tenths) { String.format(Locale.ROOT, "%+.1f", tenths / 10f).replace('-', '−') }
-    val style = resonanceTextStyle(30.sp, FontWeight.ExtraBold, english = true)
+    val style = resonanceTextStyle(TypeSize.score, FontWeight.ExtraBold, english = true)
     val measurer = rememberTextMeasurer()
     val available = with(LocalDensity.current) { textWidth.toPx() }
     val width = remember(measurer, style, maxAbs) {
         maxOf(measurer.measure(String.format(Locale.ROOT, "−%.1f", maxAbs), style = style, maxLines = 1).size.width,
             measurer.measure(String.format(Locale.ROOT, "+%.1f", maxAbs), style = style, maxLines = 1).size.width)
     }
-    val adjustedSize = if (width > available) (30f * (available - 1).coerceAtLeast(1f) / width).sp else 30.sp
+    val adjustedSize = if (width > available) TypeSize.score * ((available - 1).coerceAtLeast(1f) / width) else TypeSize.score
     Text(scoreLabel, color = if (tenths < 0) ResonancePalette.signal else ResonancePalette.sand,
         style = style.copy(fontSize = adjustedSize), maxLines = 1, softWrap = false)
 }
@@ -277,9 +280,9 @@ private fun ScoreNumber(value: State<Float>, maxAbs: Double, textWidth: Dp) {
 @Composable
 internal fun SectionHeader(title: String, onAction: (() -> Unit)?, action: String,
     onPlayBatch: (() -> Unit)? = null) {
-    Row(Modifier.fillMaxWidth().padding(top = 5.dp), verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ResonanceText(title, 22, Modifier.weight(1f), weight = FontWeight.Black)
+    Row(Modifier.fillMaxWidth().padding(top = Space.opticalInset), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
+        ResonanceText(title, TypeSize.title, Modifier.weight(1f), weight = FontWeight.Black)
         if (onAction != null) TextAction(action, onAction, ResonancePalette.muted)
         if (onPlayBatch != null) OutlineButton("播放这批", onPlayBatch)
     }
@@ -294,23 +297,23 @@ internal fun TrackRow(
     subtitle: String = "", detailsButton: Boolean = false,
     supporting: @Composable ColumnScope.() -> Unit = {}
 ) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 68.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(Modifier.weight(1f).heightIn(min = 68.dp)
+    Row(Modifier.fillMaxWidth().heightIn(min = Space.trackHeight),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
+        Row(Modifier.weight(1f).heightIn(min = Space.trackHeight)
             .combinedClickable(role = Role.Button, onClick = onPlay, onLongClick = onDetails,
                 onLongClickLabel = "${song.name}的歌曲详情"),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.x3)) {
             val cover = rememberArtworkLoad(song)
-            Box(Modifier.size(56.dp)) {
+            Box(Modifier.size(Space.listCover)) {
                 if (cover.image == null) SandPlate(song.mid, Modifier.matchParentSize(), ticker = ticker, batch = batch, row = row)
-                ArtworkTransition(cover, Modifier.matchParentSize(), RoundedCornerShape(14.dp))
+                ArtworkTransition(cover, Modifier.matchParentSize(), Corners.cover)
             }
-            Column(Modifier.weight(1f).padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                ResonanceText(song.name, 16, color = if (current) ResonancePalette.signal else ResonancePalette.sand, weight = FontWeight.Bold, english = true)
-                ResonanceText(subtitle.ifBlank { if (unfamiliar) "新歌候选 · ${song.artist}" else song.artist }, 12,
+            Column(Modifier.weight(1f).padding(vertical = Space.x1), verticalArrangement = Arrangement.spacedBy(Space.thin)) {
+                ResonanceText(song.name, TypeSize.track, color = if (current) ResonancePalette.signal else ResonancePalette.sand, weight = FontWeight.Bold, english = true)
+                ResonanceText(subtitle.ifBlank { if (unfamiliar) "新歌候选 · ${song.artist}" else song.artist }, TypeSize.secondary,
                     color = ResonancePalette.muted, english = true)
                 supporting()
-                if (reason.isNotBlank()) ResonanceText(reason, 12, color = ResonancePalette.signal,
+                if (reason.isNotBlank()) ResonanceText(reason, TypeSize.secondary, color = ResonancePalette.signal,
                     english = true, lines = if (detailsButton) 3 else 1)
             }
         }
@@ -334,13 +337,13 @@ internal fun Dock(
     onToggle: () -> Unit, onNext: () -> Unit,
     artworkSlot: @Composable (Boolean, @Composable () -> Unit) -> Unit = { _, content -> content() }
 ) {
-    val shape = RoundedCornerShape(28.dp)
+    val shape = Corners.dock
     val animate = LocalResonanceMotion.current
     val playhead = remember { SmoothPlayhead() }
-    Column(Modifier.navigationBarsPadding().padding(start = 12.dp, end = 12.dp, bottom = 12.dp, top = 4.dp)
-        .fillMaxWidth().clip(shape).background(ResonancePalette.surface).border(1.dp, ResonancePalette.line, shape)) {
+    Column(Modifier.navigationBarsPadding().padding(start = Space.x3, end = Space.x3, bottom = Space.x3, top = Space.x1)
+        .fillMaxWidth().clip(shape).background(ResonancePalette.surface).border(Space.thin, ResonancePalette.line, shape)) {
         if (song != null) {
-            Canvas(Modifier.fillMaxWidth().height(2.dp)) {
+            Canvas(Modifier.fillMaxWidth().height(Space.progressLine)) {
                 val frame = clock.value
                 val advancing = animate && player.playing
                 val progress = if (frame.mid == song.mid && player.durationMs > 0)
@@ -349,12 +352,12 @@ internal fun Dock(
                 drawRect(ResonancePalette.line)
                 drawRect(ResonancePalette.sand, size = Size(size.width * progress, size.height))
             }
-            Row(Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().height(Space.miniHeight).padding(horizontal = Space.x2), verticalAlignment = Alignment.CenterVertically) {
                 val openInteraction = remember { MutableInteractionSource() }
-                Row(Modifier.weight(1f).heightIn(min = 48.dp)
+                Row(Modifier.weight(1f).heightIn(min = Space.touch)
                     .clickable(openInteraction, LocalIndication.current, onClickLabel = "展开播放器", onClick = onExpand)
                     .resonancePress(openInteraction),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
                     Box(Modifier.size(Space.dockCover), contentAlignment = Alignment.Center) {
                         artworkSlot(true) {
                             if (cover == null) Box(Modifier.fillMaxSize().clip(Corners.dockCover)) {
@@ -365,14 +368,14 @@ internal fun Dock(
                             Image(cover, null, Modifier.fillMaxSize().clip(Corners.dockCover), contentScale = ContentScale.Crop)
                         }
                     }
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                        ResonanceText(song.name, 14, weight = FontWeight.Bold, english = true)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.thin)) {
+                        ResonanceText(song.name, TypeSize.body, weight = FontWeight.Bold, english = true)
                         val subtitle = when {
                             player.loading -> "正在连接音源…"
                             player.message.contains("无法") -> player.message
                             else -> song.artist
                         }
-                        ResonanceText(subtitle, 12, color = ResonancePalette.muted, english = true)
+                        ResonanceText(subtitle, TypeSize.secondary, color = ResonancePalette.muted, english = true)
                     }
                 }
                 val mode = PlaybackMode.parse(player.playbackMode)
@@ -385,18 +388,18 @@ internal fun Dock(
                     PlayPauseMorph(playing)
                 }
                 IconAction("下一首", onNext, ResonancePalette.sand) {
-                    Glyph(ResonanceGlyph.NEXT, Modifier.size(22.dp), ResonancePalette.sand)
+                    Glyph(ResonanceGlyph.NEXT, Modifier.size(Space.nextGlyph), ResonancePalette.sand)
                 }
             }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(ResonancePalette.line))
+            Box(Modifier.fillMaxWidth().height(Space.thin).background(ResonancePalette.line))
         }
-        BoxWithConstraints(Modifier.fillMaxWidth().height(56.dp)) {
+        BoxWithConstraints(Modifier.fillMaxWidth().height(Space.listCover)) {
             val slotWidth = maxWidth / homeDestinations.size
             val selection = resonanceAnimatedValue(tab.toFloat(), Motion.Navigation, Motion.responsive, "navigation")
             Box(Modifier.offset {
                 val position = if (animate) selection.value else tab.toFloat()
-                IntOffset((slotWidth * (position + .5f) - 28.dp).roundToPx(), 5.dp.roundToPx())
-            }.size(width = 56.dp, height = 30.dp).background(ResonancePalette.sand, CircleShape))
+                IntOffset((slotWidth * (position + .5f) - Space.navHalfWidth).roundToPx(), Space.opticalInset.roundToPx())
+            }.size(width = Space.listCover, height = Space.navPillHeight).background(ResonancePalette.sand, CircleShape))
             Row(Modifier.matchParentSize().selectableGroup()) {
                 homeDestinations.forEachIndexed { index, (label, glyph) ->
                     val selected = index == tab
@@ -404,10 +407,10 @@ internal fun Dock(
                     Column(Modifier.weight(1f).fillMaxHeight().selectable(selected, interaction, LocalIndication.current,
                         role = Role.Tab, onClick = { onTab(index) }).resonancePress(interaction),
                         horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(Modifier.padding(top = 5.dp).size(width = 56.dp, height = 30.dp), contentAlignment = Alignment.Center) {
-                            Glyph(glyph, Modifier.size(21.dp), if (selected) ResonancePalette.ink else ResonancePalette.muted)
+                        Box(Modifier.padding(top = Space.opticalInset).size(width = Space.listCover, height = Space.navPillHeight), contentAlignment = Alignment.Center) {
+                            Glyph(glyph, Modifier.size(Space.navGlyph), if (selected) ResonancePalette.ink else ResonancePalette.muted)
                         }
-                        ResonanceText(label, 12, color = if (selected) ResonancePalette.sand else ResonancePalette.muted,
+                        ResonanceText(label, TypeSize.secondary, color = if (selected) ResonancePalette.sand else ResonancePalette.muted,
                             weight = if (selected) FontWeight.Bold else FontWeight.Medium)
                     }
                 }
@@ -424,7 +427,7 @@ internal fun IconAction(label: String, onClick: () -> Unit, color: Color, filled
         .semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
         val surface = when {
             filled -> Modifier.background(color, CircleShape)
-            outline -> Modifier.border(1.5.dp, color, CircleShape)
+            outline -> Modifier.border(Space.focus, color, CircleShape)
             else -> Modifier
         }
         Box(Modifier.size(diameter).resonancePress(interaction).then(surface), contentAlignment = Alignment.Center) { content() }
@@ -460,7 +463,7 @@ internal fun PlayPauseMorph(playing: Boolean, modifier: Modifier = Modifier.size
 
 @Composable
 private fun ShuffleGlyph(color: Color) {
-    Canvas(Modifier.size(23.dp)) {
+    Canvas(Modifier.size(Space.shuffleGlyph)) {
         val w = size.width
         val h = size.height
         val path = Path().apply {
@@ -476,7 +479,7 @@ private fun ShuffleGlyph(color: Color) {
                 lineTo(w * .70f, h * (y + .12f))
             }
         }
-        drawPath(path, color, style = Stroke(1.75.dp.toPx(), cap = StrokeCap.Round))
+        drawPath(path, color, style = Stroke(Space.shuffleStroke.toPx(), cap = StrokeCap.Round))
     }
 }
 
@@ -511,10 +514,18 @@ internal fun EmptyState(message: String, action: String? = null, onAction: (() -
 @Composable
 internal fun LoadingState(message: String, ticker: FrameTicker, visible: Boolean) {
     val renderer = remember { HomeSandRenderer() }
-    Row(Modifier.fillMaxWidth().padding(vertical = Space.x2), verticalAlignment = Alignment.CenterVertically,
+    val owner = remember { Any() }
+    var placed by remember { mutableStateOf(false) }
+    val motion = LocalResonanceMotion.current && visible && placed
+    DisposableEffect(ticker, owner, motion) {
+        ticker.setSandLoop(owner, motion)
+        onDispose { ticker.setSandLoop(owner, false) }
+    }
+    Row(Modifier.fillMaxWidth().padding(vertical = Space.x2)
+        .onGloballyPositioned { placed = !it.boundsInWindow().isEmpty }, verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Space.x3)) {
         SandPlate(message, Modifier.size(Space.x8), density = .035f,
-            animation = SandAnimation(renderer, ticker, visible, false, priority = 0, repeat = true))
+            animation = SandAnimation(renderer, ticker, motion, false, priority = 0, repeat = true))
         Text(message, fontSize = TypeSize.secondary, color = ResonancePalette.muted,
             modifier = Modifier.semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite })
     }

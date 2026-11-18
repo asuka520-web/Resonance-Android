@@ -136,10 +136,10 @@ private fun CompactSandPlate(trackId: String, modifier: Modifier,
     Canvas(
         modifier.then(exitFade).clip(Corners.cover).background(ResonancePalette.plate)
             .drawWithCache {
-                val jitter = 1.2.dp.toPx()
-                val drift = 6.dp.toPx()
+                val jitter = Space.restJitter.toPx()
+                val drift = Space.statusDot.toPx()
                 val particles = layers?.single()
-                val paint = sandPaint(.5.dp.toPx(), 255)
+                val paint = sandPaint(Space.smallGrain.toPx(), 255)
                 val width = size.width
                 val height = size.height
                 fun project(entry: Float, exit: Float) {
@@ -310,12 +310,11 @@ private fun AnimatedSandPlate(trackId: String, animation: SandAnimation, granted
     LaunchedEffect(playing, match, animate, animation.liveClarity) {
         if (!animate) {
             renderer.settle()
-            ticker.cancelSand()
         }
         renderer.update(playing, match, ticker, animate, animation.liveClarity)
     }
     Canvas(modifier.clip(Corners.plate).background(ResonancePalette.plate).drawWithCache {
-        val paints = arrayOf(sandPaint(.85.dp.toPx(), 255), sandPaint(1.3.dp.toPx(), 255), sandPaint(.6.dp.toPx(), 89))
+        val paints = arrayOf(sandPaint(Space.mainGrain.toPx(), 255), sandPaint(Space.largeGrain.toPx(), 255), sandPaint(Space.looseGrain.toPx(), 89))
         val scale = density
         onDrawBehind {
             val limit = granted()

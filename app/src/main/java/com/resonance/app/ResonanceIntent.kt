@@ -1,7 +1,6 @@
 package com.resonance.app
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Slider
@@ -87,9 +86,12 @@ internal fun IntentEditor(genres: Map<String, CatalogueGenre>, draft: ListeningI
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun IntentSlider(value: Float, onDrag: (Float) -> Unit, onDrop: (Float) -> Unit) {
-    val latest by rememberUpdatedState(value)
-    Slider(value, onValueChange = onDrag, valueRange = -1f..1f,
-        onValueChangeFinished = { onDrop(latest) },
+    var lastPointerValue by remember { mutableStateOf<Float?>(null) }
+    Slider(value, onValueChange = { lastPointerValue = it; onDrag(it) }, valueRange = -1f..1f,
+        onValueChangeFinished = {
+            lastPointerValue?.let(onDrop)
+            lastPointerValue = null
+        },
         thumb = {
             androidx.compose.foundation.Canvas(Modifier.size(Space.x2, Space.x4)) {
                 drawRect(ResonancePalette.signal)

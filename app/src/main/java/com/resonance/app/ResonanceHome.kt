@@ -84,8 +84,8 @@ internal fun HomePlate(song: QqCatalogueTrack?, cover: ArtworkLoad, renderer: Ho
     Box(Modifier.fillMaxWidth().aspectRatio(350f / 224f), contentAlignment = Alignment.Center) {
         SandPlate(song?.mid.orEmpty(), Modifier.matchParentSize(), animation =
             SandAnimation(renderer, ticker, visible, playing, match, cold, systemMotion, onFirstPattern))
-        val shape = RoundedCornerShape(18.dp)
-        ArtworkTransition(cover, Modifier.size(96.dp), shape, dropShadow = true, visible = visible)
+        val shape = Corners.card
+        ArtworkTransition(cover, Modifier.size(Space.heroCover), shape, dropShadow = true, visible = visible)
     }
 }
 
@@ -94,17 +94,17 @@ internal fun HomeHero(
     connected: Boolean, song: QqCatalogueTrack?,
     onLogin: () -> Unit, onSimilar: () -> Unit, onSurprise: () -> Unit, onIntent: () -> Unit
 ) {
-    Column(Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(Modifier.fillMaxWidth().padding(top = Space.x1), verticalArrangement = Arrangement.spacedBy(Space.x3)) {
         if (connected && song != null) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(song.name, style = resonanceTextStyle(26.sp, FontWeight.ExtraBold, english = true),
-                    color = ResonancePalette.sand, lineHeight = 28.08.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                ResonanceText(song.artist, 14, color = ResonancePalette.muted, english = true)
+            Column(verticalArrangement = Arrangement.spacedBy(Space.x1)) {
+                Text(song.name, style = resonanceTextStyle(TypeSize.song, FontWeight.ExtraBold, english = true),
+                    color = ResonancePalette.sand, lineHeight = TypeSize.songLine, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                ResonanceText(song.artist, TypeSize.body, color = ResonancePalette.muted, english = true)
             }
         } else {
-            ResonanceText(if (connected) "收藏同步后可听相似推荐" else "从你的收藏开始", 18, lines = 2, weight = FontWeight.Bold)
+            ResonanceText(if (connected) "收藏同步后可听相似推荐" else "从你的收藏开始", TypeSize.lead, lines = 2, weight = FontWeight.Bold)
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
             if (!connected) PrimaryButton("连接我的 QQ 音乐", onLogin, Modifier.weight(1f))
             else {
                 if (song != null) PrimaryButton("相似推荐", onSimilar, Modifier.weight(1f))
@@ -118,11 +118,11 @@ internal fun HomeHero(
 @Composable
 internal fun HomeCatalogueStatus(syncing: Boolean, message: String, count: Int) {
     val reading = "正在自动整理曲风 · $count 首已有资料"
-    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
+    Row(Modifier.fillMaxWidth().padding(vertical = Space.opticalInset), horizontalArrangement = Arrangement.spacedBy(Space.x2),
         verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(6.dp).background(ResonancePalette.signal, CircleShape))
-        if (syncing) ResonanceText(message, 12, color = ResonancePalette.muted, english = true, lines = 2)
-        else ResonanceText("正在整理曲风，$count 首已有资料", 12,
+        Box(Modifier.size(Space.statusDot).background(ResonancePalette.signal, CircleShape))
+        if (syncing) ResonanceText(message, TypeSize.secondary, color = ResonancePalette.muted, english = true, lines = 2)
+        else ResonanceText("正在整理曲风，$count 首已有资料", TypeSize.secondary,
             Modifier.clearAndSetSemantics { contentDescription = reading }, ResonancePalette.muted, english = true)
     }
 }
@@ -131,17 +131,17 @@ internal fun HomeCatalogueStatus(syncing: Boolean, message: String, count: Int) 
 internal fun HomeScoreCards(scores: List<GenreScore>, ticker: FrameTicker, systemMotion: Boolean,
     onAll: () -> Unit, onClear: () -> Unit) {
     val maxAbs = (scores.firstOrNull()?.let { abs(it.combined) } ?: 0.0).coerceAtLeast(6.0)
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.x1)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            ResonanceText("标签分数", 22, Modifier.weight(1f), weight = FontWeight.Black)
+            ResonanceText("标签分数", TypeSize.title, Modifier.weight(1f), weight = FontWeight.Black)
             TextAction("全部 ${scores.size} 项", onAll, ResonancePalette.signal, "查看全部 ${scores.size} 项")
             TextAction("清除", onClear, ResonancePalette.muted, "清除当前所有分数")
         }
-        if (scores.isEmpty()) ResonanceText("暂无曲风标签，取得资料后会在这里显示。", 12,
+        if (scores.isEmpty()) ResonanceText("暂无曲风标签，取得资料后会在这里显示。", TypeSize.secondary,
             color = ResonancePalette.muted, lines = 2)
         else BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val textWidth = ((maxWidth - 16.dp) / 3 - 24.dp).coerceAtLeast(1.dp)
-            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val textWidth = ((maxWidth - Space.x4) / 3 - Space.x6).coerceAtLeast(Space.thin)
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
                 scores.take(3).forEach { score ->
                     androidx.compose.runtime.key(score.label) {
                         ScoreCard(score, maxAbs, textWidth, ticker, systemMotion, Modifier.weight(1f).fillMaxHeight())
@@ -157,9 +157,9 @@ internal fun HomeScoreCards(scores: List<GenreScore>, ticker: FrameTicker, syste
 internal fun HomeRecommendationReason(plan: StylePlan, expanded: Boolean, onToggle: () -> Unit) {
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            ResonanceText(plan.heading, 13, Modifier.weight(1f), ResonancePalette.muted, lines = 2)
+            ResonanceText(plan.heading, TypeSize.action, Modifier.weight(1f), ResonancePalette.muted, lines = 2)
             TextAction("推荐理由", onToggle, ResonancePalette.sand)
         }
-        if (expanded || plan.picks.isEmpty()) ResonanceText(plan.explanation, 12, color = ResonancePalette.muted, lines = Int.MAX_VALUE)
+        if (expanded || plan.picks.isEmpty()) ResonanceText(plan.explanation, TypeSize.secondary, color = ResonancePalette.muted, lines = Int.MAX_VALUE)
     }
 }
