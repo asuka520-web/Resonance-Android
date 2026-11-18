@@ -29,7 +29,6 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.FilterChip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
@@ -56,8 +55,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.boundsInWindow
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -293,7 +290,7 @@ internal fun SectionHeader(title: String, onAction: (() -> Unit)?, action: Strin
 @Composable
 internal fun TrackRow(
     song: QqCatalogueTrack, reason: String, current: Boolean, onPlay: () -> Unit, onDetails: () -> Unit,
-    unfamiliar: Boolean = false, ticker: FrameTicker? = null, batch: BatchSandMotion? = null, row: Int = 0,
+    unfamiliar: Boolean = false,
     subtitle: String = "", detailsButton: Boolean = false,
     supporting: @Composable ColumnScope.() -> Unit = {}
 ) {
@@ -305,7 +302,7 @@ internal fun TrackRow(
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.x3)) {
             val cover = rememberArtworkLoad(song)
             Box(Modifier.size(Space.listCover)) {
-                if (cover.image == null) SandPlate(song.mid, Modifier.matchParentSize(), ticker = ticker, batch = batch, row = row)
+                if (cover.image == null) SandPlate(song.mid, Modifier.matchParentSize())
                 ArtworkTransition(cover, Modifier.matchParentSize(), Corners.cover)
             }
             Column(Modifier.weight(1f).padding(vertical = Space.x1), verticalArrangement = Arrangement.spacedBy(Space.thin)) {
@@ -512,20 +509,10 @@ internal fun EmptyState(message: String, action: String? = null, onAction: (() -
 }
 
 @Composable
-internal fun LoadingState(message: String, ticker: FrameTicker, visible: Boolean) {
-    val renderer = remember { HomeSandRenderer() }
-    val owner = remember { Any() }
-    var placed by remember { mutableStateOf(false) }
-    val motion = LocalResonanceMotion.current && visible && placed
-    DisposableEffect(ticker, owner, motion) {
-        ticker.setSandLoop(owner, motion)
-        onDispose { ticker.setSandLoop(owner, false) }
-    }
-    Row(Modifier.fillMaxWidth().padding(vertical = Space.x2)
-        .onGloballyPositioned { placed = !it.boundsInWindow().isEmpty }, verticalAlignment = Alignment.CenterVertically,
+internal fun LoadingState(message: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = Space.x2), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Space.x3)) {
-        SandPlate(message, Modifier.size(Space.x8), density = .035f,
-            animation = SandAnimation(renderer, ticker, motion, false, priority = 0, repeat = true))
+        SandPlate(message, Modifier.size(Space.x8), density = .3f)
         Text(message, fontSize = TypeSize.secondary, color = ResonancePalette.muted,
             modifier = Modifier.semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite })
     }

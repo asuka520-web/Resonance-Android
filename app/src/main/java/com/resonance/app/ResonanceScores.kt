@@ -63,7 +63,7 @@ internal fun ClearScoresDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
         val ticker = remember { FrameTicker() }
         val animate = LocalResonanceMotion.current
         val framePermission = rememberUpdatedState(animate)
-        var burst by remember { mutableStateOf<BatchSandMotion?>(null) }
+        var burst by remember { mutableStateOf<Long?>(null) }
         RunResonanceFrames(ticker, animate, continuous = false, drawSand = false)
         LaunchedEffect(burst) {
             if (burst != null) {
@@ -72,7 +72,7 @@ internal fun ClearScoresDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
             }
         }
         SandPlate("clear-scores", Modifier.size(Space.listCover).align(Alignment.CenterHorizontally),
-            ticker = ticker, batch = burst, density = .25f)
+            ticker = ticker, fadeStartedAt = burst, density = .25f)
         Text("当前账号的全部标签分数归零，之后按新的听歌反馈积累。保留收藏、曲风、听歌记录和陪伴时长；正在播放的歌曲继续播放。",
             fontSize = TypeSize.body, color = ResonancePalette.muted)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
@@ -80,7 +80,7 @@ internal fun ClearScoresDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
             PrimaryButton("确认清零", {
                 if (burst == null) {
                     onConfirm()
-                    if (animate) burst = BatchSandMotion(ticker.time, entering = false) else onDismiss()
+                    if (animate) burst = ticker.time else onDismiss()
                 }
             })
         }

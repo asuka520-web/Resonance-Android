@@ -22,7 +22,7 @@ class ResonanceMotionTest {
     fun hiddenPlateCanCancelItsWorkAndClockStaysIndependentOfMotionSetting() {
         val ticker = FrameTicker()
         ticker.request(Motion.TrackChange, sand = true)
-        ticker.request(Motion.BatchEnter)
+        ticker.request(Motion.Gather)
         assertTrue(ticker.hasSandWork())
         ticker.cancelSand()
         assertFalse(ticker.hasSandWork())

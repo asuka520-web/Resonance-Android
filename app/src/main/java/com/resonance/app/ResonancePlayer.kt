@@ -56,13 +56,12 @@ internal fun NowPlaying(
 ) {
     BackHandler(open, onBack = onClose)
     val motion = LocalResonanceMotion.current && open
-    val ticker = remember { FrameTicker() }
+    val ticker = ResonanceEngine.clock
     val renderer = remember { HomeSandRenderer() }
     var boardVisible by remember { mutableStateOf(false) }
     val boardActive = boardVisible && motion
     var firstPattern by remember { mutableStateOf(true) }
     val hasWork by remember { derivedStateOf { ticker.hasSandWork() } }
-    RunResonanceFrames(ticker, boardActive, player.playing, boardActive)
     MonitorResonanceFrames(ticker, boardActive && (player.playing || hasWork) && !ticker.reducedQuality)
     var panelOffset by remember { mutableFloatStateOf(0f) }
     val dragLimit = with(LocalDensity.current) { (Space.x6 * 3).toPx() }
@@ -89,7 +88,7 @@ internal fun NowPlaying(
                     verticalArrangement = Arrangement.spacedBy(Space.x3)) {
                     Box(Modifier.fillMaxWidth().aspectRatio(1f)
                         .onGloballyPositioned { boardVisible = !it.boundsInWindow().isEmpty }, contentAlignment = Alignment.Center) {
-                        SandPlate(song.mid, Modifier.matchParentSize().then(plateTransition),
+                        SandPlate(song.mid, Modifier.matchParentSize().then(plateTransition), animated = true,
                             animation = SandAnimation(renderer, ticker, boardActive, player.playing, cold = firstPattern,
                                 onFirstPattern = { firstPattern = false }, priority = 3))
                         ArtworkTransition(cover, Modifier.size(Space.heroCover).then(coverTransition), Corners.card,

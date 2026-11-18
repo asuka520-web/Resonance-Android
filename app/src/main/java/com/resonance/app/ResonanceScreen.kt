@@ -72,7 +72,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -263,8 +262,11 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
     val sharedArtwork = motionEnabled && LocalSharedArtwork.current
     val controlsActive = !expandedPlayer && detailSong == null && !showIntent && !showScoreReset && feedbackSong == null && !showDirectionHistory
     val homeActive = tab == 0 && controlsActive
-    val canAnimateBatch = rememberUpdatedState(motionEnabled && homeActive)
-    val ticker = remember { FrameTicker() }
+    val ticker = ResonanceEngine.clock
+    SideEffect { ResonanceEngine.updatePlayback(player.playing, player.mid) }
+    DisposableEffect(Unit) {
+        onDispose { ResonanceEngine.updatePlayback(false, ""); ticker.cancelSand() }
+    }
     val renderer = remember { HomeSandRenderer() }
     val logo = remember { MotionFloat(0f) }
     var coldPlate by rememberSaveable { mutableStateOf(true) }
@@ -278,9 +280,6 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
     var seenScores by remember(library.accountScope) { mutableStateOf<Map<String, Double>?>(null) }
     var seenIntent by remember(library.accountScope) { mutableStateOf(library.intent) }
     var pendingStrike by remember(library.accountScope) { mutableStateOf(false) }
-    var batchMotion by remember { mutableStateOf<BatchSandMotion?>(null) }
-    val motionScope = rememberCoroutineScope()
-    val currentRefresh by rememberUpdatedState(onRefreshRecommendation)
     LaunchedEffect(tab, scoreSnapshot, library.intent) {
         if (tab != 0) {
             seenScores = null
@@ -310,43 +309,18 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
         val first = library.playlistTracks.firstOrNull()?.mid
         if (playlistId != null && first != null) playlistSeeds[playlistId] = first
     }
-    val collectionLoading by remember(pages[2]) { derivedStateOf { pages[2].partVisible("collection-loading") } }
-    val animateCollection = tab == 2 && controlsActive && collectionLoading
     val browserEntries = rememberDiscoveryEntries(library, discoverySearch, unheardOnly, discoveryGenre, tab == 1)
     val discoveryGenres = remember(library.discoveries, library.genres) {
         library.discoveries.flatMap { library.genres[it.mid]?.labels.orEmpty() }.distinct().sorted().chunked(4)
     }
-    val discoveryLoading by remember(pages[1]) { derivedStateOf { pages[1].partVisible("discovery-loading") } }
-    val animateDiscovery = tab == 1 && controlsActive && discoveryLoading
     val profileRenderer = remember { HomeSandRenderer() }
     val profileGraphVisible by remember(pages[3]) { derivedStateOf { pages[3].partVisible("profile-graph") } }
     val animateGraph = tab == 3 && controlsActive && profileGraphVisible
     val rated = remember(scores) { scores.filter { it.observations > 0 || it.manual != 0.0 }.sortedByDescending { it.combined } }
-    RunResonanceFrames(ticker, motionEnabled && controlsActive,
-        player.playing && (current != null || animatePlate || homeActive && logoVisible), animatePlate || animateGraph)
+    RunResonanceFrames(ticker, motionEnabled && (controlsActive || expandedPlayer),
+        ResonanceEngine.isPlaying && controlsActive && (current != null || logoVisible), drawSand = false)
     val hasPlateWork by remember(ticker) { derivedStateOf { ticker.hasSandWork() } }
     MonitorResonanceFrames(ticker, motionEnabled && animatePlate && (player.playing || hasPlateWork) && !ticker.reducedQuality)
-    fun refreshBatch(mid: String, count: Int) {
-        if (batchMotion != null) return
-        if (!canAnimateBatch.value || count == 0) {
-            currentRefresh(mid)
-            return
-        }
-        batchMotion = BatchSandMotion(ticker.time, entering = false)
-        motionScope.launch {
-            try {
-                ticker.await(Motion.BatchExit + (count - 1) * Motion.BatchExitStagger, canAnimateBatch)
-                currentRefresh(mid)
-                if (canAnimateBatch.value) {
-                    batchMotion = BatchSandMotion(ticker.time, entering = true)
-                    val nextSize = (QqLibrary.state.recommendation?.picks?.size ?: count).coerceAtLeast(1)
-                    ticker.await(Motion.BatchEnter + (nextSize - 1) * Motion.BatchEnterStagger, canAnimateBatch)
-                }
-            } finally {
-                batchMotion = null
-            }
-        }
-    }
     val notice=listOfNotNull(player.directionNotice,library.feedback,previewNotice).maxByOrNull {it.createdAt}
     LaunchedEffect(expandedPlayer,current?.mid,detailSong?.mid) {
         if(connected)(detailSong?.mid?:current?.mid?.takeIf {expandedPlayer})?.let(onRefreshFavorite)
@@ -420,7 +394,7 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                     if(recommendations!=null) {
                         val refreshMid = seed?.mid ?: recommendations.picks.firstOrNull()?.track?.mediaId?.removePrefix("qq:")
                         item {
-                            SectionHeader("为你推荐", refreshMid?.let { mid -> { refreshBatch(mid, recommendations.picks.size) } }, "换一批",
+                            SectionHeader("为你推荐", refreshMid?.let { mid -> { onRefreshRecommendation(mid) } }, "换一批",
                                 if(recommendations.picks.isNotEmpty()) ({onPlayRecommendation(null)}) else null)
                         }
                         item {
@@ -429,11 +403,10 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                             }
                         }
                         // Keep the artwork slot mounted during batch replacement so both covers can blend.
-                        itemsIndexed(recommendations.picks, key = { index, _ -> "resonance-pick-$index" }) { index, pick ->
+                        itemsIndexed(recommendations.picks, key = { index, _ -> "resonance-pick-$index" }) { _, pick ->
                             tracksByMid[pick.track.mediaId.removePrefix("qq:")]?.let {song ->
                                 TrackRow(song, pick.reason, song.mid==player.mid,
-                                    {onPlayRecommendation(song.mid)}, {detailSong=song}, unfamiliar = pick.unfamiliar,
-                                    ticker = ticker, batch = batchMotion, row = index)
+                                    {onPlayRecommendation(song.mid)}, {detailSong=song}, unfamiliar = pick.unfamiliar)
                                 if(showRecommendationReason && pick.reason.isNotBlank()) {
                                     Text(pick.reason,color=ResonancePalette.signal,fontSize=TypeSize.secondary)
                                 }
@@ -482,8 +455,7 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                     if (entries.isEmpty()) when {
                         !connected -> item { EmptyState("连接 QQ 音乐后自动发现新歌。", "连接 QQ 音乐", onLogin) }
                         browserEntries == null || library.discovering -> item(key = "discovery-loading") {
-                            LoadingState(if (library.discovering) "正在寻找候选，稍后就会出现。" else "正在整理候选…",
-                                ticker, animateDiscovery)
+                            LoadingState(if (library.discovering) "正在寻找候选，稍后就会出现。" else "正在整理候选…")
                         }
                         library.discoveryMessage.contains("失败") -> item {
                             ErrorState("发现新歌", library.discoveryMessage, "发现更多", onRefreshDiscovery)
@@ -562,7 +534,7 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                         }}
                     val playlistError = library.message.startsWith("歌单暂时未能读取") || library.message.startsWith("歌单内容暂时不可用")
                     if (library.syncing && library.openedPlaylist == null) item(key = "collection-loading") {
-                        LoadingState(library.message, ticker, animateCollection)
+                        LoadingState(library.message)
                     }
                     if (playlistError) item {
                         val retry = if (library.message.startsWith("歌单内容")) requestedPlaylist?.let { playlist -> { onPlaylist(playlist) } }
@@ -601,7 +573,7 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                     item(key = "profile-graph") {
                         val seed = rated.take(3).joinToString("|") { it.label }.ifBlank { "profile-empty" }
                         val density = (.025f + rated.size / 45f).coerceAtMost(1f)
-                        SandPlate(seed, Modifier.fillMaxWidth().aspectRatio(350f / 224f), density = density,
+                        SandPlate(seed, Modifier.fillMaxWidth().aspectRatio(350f / 224f), density = density, animated = true,
                             animation = SandAnimation(profileRenderer, ticker, animateGraph, false))
                     }
                     item {

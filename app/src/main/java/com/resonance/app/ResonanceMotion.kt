@@ -66,9 +66,6 @@ internal object Motion {
     const val Clarity = 600
     const val DefaultMatch = .5f
     const val BatchExit = 200
-    const val BatchEnter = 500
-    const val BatchExitStagger = 50
-    const val BatchEnterStagger = 60
     const val Press = 90
     const val Release = 160
     const val PressScale = .97f
@@ -115,16 +112,44 @@ internal object Motion {
         return mix(rest, mix(.4f, 1f, easeInOut.transform(cycle)), envelope)
     }
 
-    fun sandAmplitude(timeSeconds: Float): Float {
-        val level = .5 + .3 * sin(2 * PI * 1.7 * timeSeconds) + .2 * sin(2 * PI * .43 * timeSeconds + 1)
-        return mix(.4f, 2f, level.toFloat().coerceIn(0f, 1f))
-    }
+    fun simulatedLevel(timeSeconds: Float): Float =
+        (.5 + .3 * sin(2 * PI * 1.7 * timeSeconds) + .2 * sin(2 * PI * .43 * timeSeconds + 1)).toFloat().coerceIn(0f, 1f)
+
+    fun sandAmplitude(timeSeconds: Float): Float = mix(.4f, 2f, simulatedLevel(timeSeconds))
 
     private val logoRestHeights = floatArrayOf(.19f, .55f, .35f, .69f)
 }
 
 internal val LocalResonanceMotion = staticCompositionLocalOf { false }
 internal val LocalSharedArtwork = staticCompositionLocalOf { true }
+
+/** Presentation only. Playback stays owned by the media service. */
+internal object ResonanceEngine {
+    val clock = FrameTicker()
+    var isPlaying by mutableStateOf(false)
+        private set
+    var trackSeed by mutableStateOf("")
+        private set
+    private var levelFrame = -1L
+    private var frameLevel = 0f
+
+    val level: Float
+        get() {
+            val frame = clock.sandTime
+            if (frame != levelFrame) {
+                frameLevel = Motion.simulatedLevel(frame / 1_000_000_000f)
+                levelFrame = frame
+            }
+            return frameLevel
+        }
+
+    fun updatePlayback(playing: Boolean, seed: String) {
+        isPlaying = playing
+        trackSeed = seed
+    }
+
+    fun subscribe(owner: Any, visible: Boolean) = clock.setVisibleBoard(owner, visible)
+}
 
 internal class FrameTicker {
     var time by mutableLongStateOf(0L)
@@ -133,7 +158,7 @@ internal class FrameTicker {
         private set
     private var requestedUntil by mutableLongStateOf(0L)
     private var sandUntil by mutableLongStateOf(0L)
-    private val repeatingSand = mutableStateMapOf<Any, Unit>()
+    private val visibleBoards = mutableStateMapOf<Any, Unit>()
     private var slowFrames = 0
     private var slowWindowFrames = 0
     var reducedQuality by mutableStateOf(false)
@@ -146,8 +171,8 @@ internal class FrameTicker {
 
     fun cancelSand() { sandUntil = 0L }
     fun hasSandWork(): Boolean = time < sandUntil
-    fun setSandLoop(owner: Any, active: Boolean) {
-        if (active) repeatingSand[owner] = Unit else repeatingSand.remove(owner)
+    fun setVisibleBoard(owner: Any, active: Boolean) {
+        if (active) visibleBoards[owner] = Unit else visibleBoards.remove(owner)
     }
 
     fun reportFrame(costNanos: Long, windowFrame: Boolean = false) {
@@ -161,9 +186,10 @@ internal class FrameTicker {
     suspend fun run(continuous: Boolean, drawSand: Boolean) {
         val infiniteAnimation = coroutineContext[InfiniteAnimationPolicy]
         snapshotFlow {
-            val repeat = repeatingSand.isNotEmpty()
-            val frameSand = drawSand || repeat
-            Triple(maxOf(requestedUntil, if (frameSand) sandUntil else 0L), continuous || repeat, frameSand)
+            val board = visibleBoards.isNotEmpty()
+            val frameSand = drawSand || board
+            Triple(maxOf(requestedUntil, if (frameSand) sandUntil else 0L),
+                continuous || (board && ResonanceEngine.isPlaying), frameSand)
         }.collectLatest { (requested, loop, frameSand) ->
             var lastFrame = 0L
             val advance: (Long) -> Unit = { frame ->
@@ -259,8 +285,6 @@ internal fun rememberMotionEnvironment(): MotionEnvironment {
     }
     return MotionEnvironment(resumed && interactive && window.isWindowFocused, systemAnimations)
 }
-
-internal data class BatchSandMotion(val startedAt: Long, val entering: Boolean)
 
 internal class MotionFloat(initial: Float) {
     private data class Change(val from: Float, val to: Float, val at: Long, val duration: Int, val ease: Easing)

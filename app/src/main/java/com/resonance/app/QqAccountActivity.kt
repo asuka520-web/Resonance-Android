@@ -220,15 +220,12 @@ class QqAccountActivity : ComponentActivity() {
 @Composable
 internal fun AccountSheetHeader(host: String, loading: Boolean, failed: Boolean, needsAuthorization: Boolean,
     onClose: () -> Unit, onAuthorize: () -> Unit, onRetry: () -> Unit) {
-    val ticker = remember { FrameTicker() }
-    val animate = LocalResonanceMotion.current
-    RunResonanceFrames(ticker, animate && loading && !failed, continuous = false, drawSand = false)
     SectionHeader("QQ 音乐账号", onClose, "完成")
     Text("官方页面 · $host", fontSize = TypeSize.caption, color = ResonancePalette.muted,
         modifier = Modifier.padding(bottom = Space.x2))
     if (needsAuthorization) TextAction("打开官方播放器页继续授权", onAuthorize, ResonancePalette.signal)
     when {
         failed -> ErrorState("官方页面暂时无法打开", "请检查网络后重试。", "重试", onRetry)
-        loading -> LoadingState("正在打开官方页面…", ticker, visible = true)
+        loading -> LoadingState("正在打开官方页面…")
     }
 }

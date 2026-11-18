@@ -74,12 +74,9 @@ fun RecommendationPanel(current: SongInfo?, snapshot: MusicSnapshot) {
         Text(if (busy) "正在读取曲库…" else "查询当前歌曲曲风并核对版本")
     }
     if (current?.artist.isNullOrBlank()) Text("需要先识别或确认歌名与歌手，才能准确查询。")
-    val ticker = remember { FrameTicker() }
-    val animate = LocalResonanceMotion.current
     val searchLoading = busy && matches == null
-    RunResonanceFrames(ticker, searchLoading && animate, continuous = false, drawSand = false)
     when {
-        searchLoading -> LoadingState(message, ticker, visible = true)
+        searchLoading -> LoadingState(message)
         message.startsWith("查询未完成") -> ErrorState("查询未完成", message.substringAfter("：", message),
             "重试", querySong?.let { requested -> { search(requested) } })
         message.isNotBlank() -> Text(message)
@@ -134,13 +131,10 @@ fun RecommendationPanel(current: SongInfo?, snapshot: MusicSnapshot) {
     if (matches != null && querySong != null) {
         val selectedSong = querySong!!
         ResonanceDialog("核对「${selectedSong.name}」的录音版本", { if (!busy) matches = null }) {
-                val dialogTicker = remember { FrameTicker() }
-                val dialogMotion = LocalResonanceMotion.current
-                RunResonanceFrames(dialogTicker, busy && dialogMotion, continuous = false, drawSand = false)
                 Column(Modifier.heightIn(max = Space.x8 * 12).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(Space.x2)) {
                     Text("核对歌手、专辑、时长与现场/混音等版本。核对按钮会继续读取该录音的公开曲风；曲库可能未收录曲风。")
-                    if (busy) LoadingState("读取中…", dialogTicker, visible = true)
+                    if (busy) LoadingState("读取中…")
                     else if (message.startsWith("曲风读取未完成")) ErrorState("曲风读取未完成", message.substringAfter("：", message))
                     else Text(message)
                     Text("QQ 音乐专辑：${selectedSong.album.ifBlank { "未知" }}；当前时长：" +
