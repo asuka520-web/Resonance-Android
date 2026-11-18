@@ -95,13 +95,17 @@ class QqAccountActivity : ComponentActivity() {
         refreshAccount()
         setContent {
             var library by remember { mutableStateOf(QqLibrary.state) }
-            var player by remember { mutableStateOf(PlaybackStateBus.value) }
+            var player by remember { mutableStateOf(PlaybackStateBus.value.withoutClock()) }
+            val playbackClock = remember { mutableStateOf(PlaybackStateBus.value.clock()) }
             var showLogin by remember { mutableStateOf(false) }
             var webView by remember { mutableStateOf<WebView?>(null) }
             var loginHost by remember { mutableStateOf("y.qq.com") }
             DisposableEffect(Unit) {
                 val libraryListener: (LibraryState) -> Unit = { library = it }
-                val playerListener: (PlayerStatus) -> Unit = { player = it }
+                val playerListener: (PlayerStatus) -> Unit = {
+                    playbackClock.value = it.clock()
+                    player = it.withoutClock()
+                }
                 QqLibrary.subscribe(libraryListener)
                 PlaybackStateBus.subscribe(playerListener)
                 val token = SessionToken(this@QqAccountActivity, ComponentName(this@QqAccountActivity, ResonancePlaybackService::class.java))
@@ -144,7 +148,7 @@ class QqAccountActivity : ComponentActivity() {
                     val range=PlaybackRange.parse(name)
                     getSharedPreferences("resonance_settings",MODE_PRIVATE).edit().putString("qq_playback_range",range.name).apply()
                     PlaybackStateBus.publish(PlaybackStateBus.value.copy(playbackRange=range.name))
-                },onClearScores=QqLibrary::clearScores,onSongFeedback=QqLibrary::songFeedback)
+                },onClearScores=QqLibrary::clearScores,onSongFeedback=QqLibrary::songFeedback, liveClock=playbackClock)
             if (showLogin) ResonanceTheme {
                 ModalBottomSheet(onDismissRequest = { closeLogin() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
                     modifier = Modifier.fillMaxHeight(.96f)) {

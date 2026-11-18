@@ -8,6 +8,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.mutableStateOf
 import androidx.activity.ComponentActivity
@@ -52,7 +54,7 @@ class ResonanceScreenTest {
     }
     @Test fun disconnectedHomeOffersConnectionWithoutDebugFieldsOrHiddenProviderNames() {
         show(LibraryState())
-        compose.onNodeWithText("Resonance by Ardolie").assertIsDisplayed()
+        compose.onNodeWithText("Resonance").assertIsDisplayed()
         compose.onNodeWithText("连接我的 QQ 音乐").assertIsDisplayed()
         compose.onAllNodesWithText("MusicBrainz",substring=true).assertCountEquals(0)
         compose.onAllNodesWithText("MEDIA_ID",substring=true).assertCountEquals(0)
@@ -73,10 +75,10 @@ class ResonanceScreenTest {
         val labels=listOf("pop","r&b","jazz")
         val genres=songs.mapIndexed {i,song -> song.mid to CatalogueGenre(song.mid,setOf(labels[i]),"qq-song-detail","test fixture",0,Long.MAX_VALUE)}.toMap()
         show(LibraryState(accountScope="test-only",favorites=songs,genres=genres),PlayerStatus(mid="test0",playing=true,positionMs=50000,durationMs=200000))
-        compose.onNodeWithText("Resonance by Ardolie").assertIsDisplayed()
+        compose.onNodeWithText("Resonance").assertIsDisplayed()
         compose.onNodeWithText("相似推荐").assertIsDisplayed()
         compose.onNodeWithText("随心听").assertIsDisplayed()
-        compose.onNodeWithText("当前标签分数").assertIsDisplayed()
+        compose.onNodeWithText("标签分数").assertIsDisplayed()
         compose.onNodeWithContentDescription("播放或暂停").assertIsDisplayed()
         capture("home-connected-test-data")
     }
@@ -128,6 +130,7 @@ class ResonanceScreenTest {
             discoverySources=mapOf("outside" to listOf("seed"))),PlayerStatus(),{},{},{},{},{},{},{},{},{},{},{},
             onPlayDiscovery={mids,mid->played=mids;selected=mid})}
         compose.onNodeWithText("发现",useUnmergedTree=true).performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("发现里的歌曲").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("发现里的歌曲").performScrollTo().performClick()
         assertEquals(listOf("outside"),played);assertEquals("outside",selected)
         compose.onNodeWithText("来自「收藏锚点」的相关推荐").assertExists()
@@ -183,17 +186,18 @@ class ResonanceScreenTest {
         compose.mainClock.advanceTimeBy(4500)
         compose.onNodeWithText("已换个方向 · 爵士").assertDoesNotExist()
     }
-    @Test fun miniPlayerExposesPreviousAndAllModesCanBeSelectedInThePlayer() {
+    @Test fun miniPlayerCyclesModesAndPreviousIsAvailableInTheFullPlayer() {
         val song=QqCatalogueTrack("mode","mode","播放模式测试歌","歌手","专辑",200000)
         val status=mutableStateOf(PlayerStatus(mid="mode",queueSize=3))
         var previousCalls=0
         compose.setContent {ResonanceScreen(LibraryState(accountScope="test",favorites=listOf(song)),status.value,
             {},{},{},{},{},{previousCalls++},{},{},{},{},{},onPlaybackMode={status.value=status.value.copy(playbackMode=it)})}
-        compose.onNodeWithContentDescription("上一首").performClick()
-        assertEquals(1,previousCalls)
+        compose.onNodeWithContentDescription("上一首").assertDoesNotExist()
         compose.onNodeWithContentDescription("播放模式：顺序播放，点按切换").performClick()
         assertEquals(PlaybackMode.LOOP.name,status.value.playbackMode)
         compose.onAllNodesWithText("播放模式测试歌").onLast().performClick()
+        compose.onNodeWithContentDescription("上一首").performScrollTo().performClick()
+        assertEquals(1,previousCalls)
         compose.onNodeWithText("单曲循环").performScrollTo().performClick()
         assertEquals(PlaybackMode.SINGLE.name,status.value.playbackMode)
         capture("player-modes-test-data")
@@ -216,7 +220,7 @@ class ResonanceScreenTest {
             "score" to CatalogueGenre("score",setOf("pop","soul"),"qq-song-detail","",0,999),
             "zero" to CatalogueGenre("zero",setOf("jazz"),"qq-song-detail","",0,999)),listening=listOf(ListeningSignal("qq:score","fast"))))
         compose.onNodeWithText("调整这次选歌").performScrollTo().performClick()
-        compose.onNodeWithText("标签分数").performClick()
+        compose.onNode(hasText("标签分数") and hasClickAction()).performClick()
         compose.onAllNodesWithText("爵士").onLast().assertIsDisplayed()
         compose.onNodeWithText("0 次记录").assertIsDisplayed()
         compose.onAllNodesWithText("-1.5 / -1.5 / -1.5").assertCountEquals(2)
@@ -260,25 +264,70 @@ class ResonanceScreenTest {
             listening=listOf(ListeningSignal("qq:score","fast"))))
         var cleared=0
         compose.setContent {ResonanceScreen(state.value,PlayerStatus(),{},{},{},{},{},{},{},{},{},{},{},onClearScores={cleared++;state.value=state.value.copy(scoreListening=emptyList())})}
-        compose.onNodeWithText("当前标签分数").assertIsDisplayed()
-        compose.onNodeWithText("-3.0").assertIsDisplayed()
+        compose.onNodeWithText("标签分数").assertIsDisplayed()
+        compose.onNodeWithText("−3.0").assertIsDisplayed()
         capture("prominent-scores-test-data")
-        compose.onNodeWithText("清除当前所有分数").performClick()
+        compose.onNodeWithContentDescription("清除当前所有分数").performClick()
         assertEquals(0,cleared)
         compose.onNodeWithText("取消",useUnmergedTree=true).performClick()
         assertEquals(0,cleared)
-        compose.onNodeWithText("清除当前所有分数").performClick()
+        compose.onNodeWithContentDescription("清除当前所有分数").performClick()
         compose.onNodeWithText("确认清零").performClick()
         assertEquals(1,cleared)
         compose.onNodeWithText("+0.0").assertIsDisplayed()
     }
+
+    @Test
+    @Config(qualifiers = "zh-rCN-w360dp-h820dp-xhdpi")
+    fun redesignFitsAt360Dp() = assertHomeLayout("home-redesign-360")
+
+    @Test
+    @Config(qualifiers = "zh-rCN-w412dp-h891dp-xhdpi")
+    fun redesignFitsAt412Dp() = assertHomeLayout("home-redesign-412")
+
+    private fun assertHomeLayout(screenshot: String) {
+        val hero = QqCatalogueTrack("hero","hero","Moth To a Flame x After Hours (TikTok Version)","Music Factory","专辑",200000)
+        val pick = QqCatalogueTrack("pick","pick","推荐歌曲","测试歌手","专辑",200000)
+        val genres = mapOf(hero.mid to CatalogueGenre(hero.mid, setOf("dance"), "qq", "", 1, 999),
+            pick.mid to CatalogueGenre(pick.mid, setOf("electronica", "pop", "jazz"), "qq", "", 1, 999))
+        val plan = StylePlan("QQ 相关歌曲", "真实的推荐说明", listOf(
+            StylePick(StyleTrack("qq:pick", pick.name, pick.artist, "qq:pick", setOf("pop")), "共同曲风：流行", false)
+        ))
+        show(LibraryState(accountScope = "test", favorites = listOf(hero, pick), genres = genres, analyzing = true,
+            recommendation = plan, scoreListening = List(500) { ListeningSignal("qq:hero", "fast") },
+            manualScores = mapOf("dance" to -6.0)),
+            PlayerStatus(mid = hero.mid, playing = true, positionMs = 80_000, durationMs = 200_000))
+        capture(screenshot)
+        for (label in listOf("Resonance", "QQ 音乐已连接", "相似推荐", "随心听", "调整这次选歌", "标签分数", "−66.0")) {
+            val layouts = mutableListOf<TextLayoutResult>()
+            val node = compose.onNodeWithText(label, useUnmergedTree = true)
+            node.performScrollTo().assertIsDisplayed()
+            node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            val layout = layouts.single()
+            assertFalse("$label at ${layout.size}: clipped vertically", layout.didOverflowHeight)
+            for (line in 0 until layout.lineCount) {
+                assertFalse("$label: line $line was ellipsized", layout.isLineEllipsized(line))
+                assertTrue("$label: line $line exceeded ${layout.size.width}px",
+                    layout.getLineRight(line) <= layout.size.width + 1f)
+            }
+        }
+        compose.onNodeWithContentDescription("正在自动整理曲风 · 2 首已有资料").assertExists()
+        compose.onNodeWithContentDescription("播放或暂停").assertIsDisplayed()
+        compose.onNodeWithText("为你", useUnmergedTree = true).assertIsDisplayed()
+        compose.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("播放这批"))
+        compose.onNodeWithText("换一批").assertIsDisplayed()
+        compose.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("共同曲风：流行"))
+        compose.onNodeWithText("共同曲风：流行").assertIsDisplayed()
+        capture("$screenshot-recommendations")
+    }
     @Test fun profileShowsListeningMinutesAndLiveStatusTakesPrecedenceOverStoredBaseline() {
-        val player=mutableStateOf(PlayerStatus(listeningTimeMs=125000))
-        compose.setContent {ResonanceScreen(LibraryState(listeningTimeMs=60000),player.value,{},{},{},{},{},{},{},{},{},{},{})}
+        val clock = mutableStateOf(PlaybackClock("", 0, 2))
+        compose.setContent {ResonanceScreen(LibraryState(listeningTimeMs=60000),PlayerStatus(),
+            {},{},{},{},{},{},{},{},{},{},{},liveClock=clock)}
         compose.onNodeWithText("我的",useUnmergedTree=true).performClick()
         compose.onNodeWithText("陪伴时长").assertIsDisplayed()
         compose.onNodeWithText("2 分钟").assertIsDisplayed()
-        compose.runOnIdle {player.value=player.value.copy(listeningTimeMs=180000)}
+        compose.runOnIdle {clock.value=clock.value.copy(listeningMinutes=3)}
         compose.onNodeWithText("3 分钟").assertIsDisplayed()
         capture("companion-time-test-data")
     }

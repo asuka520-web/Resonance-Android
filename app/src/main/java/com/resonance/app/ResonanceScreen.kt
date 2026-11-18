@@ -8,9 +8,6 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.Spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -22,8 +19,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -52,7 +47,6 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Constraints
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.text.font.FontWeight
@@ -64,6 +58,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
@@ -113,51 +111,6 @@ fun Glyph(type: ResonanceGlyph, modifier: Modifier = Modifier.size(24.dp), color
     }
 }
 
-@Composable
-private fun GlassNavigation(tab: Int, onTab: (Int) -> Unit) {
-    val destinations = listOf("为你" to ResonanceGlyph.HOME, "发现" to ResonanceGlyph.SEARCH,
-        "收藏" to ResonanceGlyph.LIBRARY, "我的" to ResonanceGlyph.PERSON)
-    GlassSurface(
-        Modifier.navigationBarsPadding().padding(start = 12.dp, end = 12.dp, bottom = 5.dp).fillMaxWidth(),
-        21.dp, Panel, 6.dp
-    ) {
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val indicatorOffset = animateDpAsState(
-                targetValue = maxWidth * ((tab + .5f) / destinations.size) - 23.dp,
-                animationSpec = spring(Spring.DampingRatioNoBouncy, Spring.StiffnessMediumLow),
-                label = "selected tab"
-            )
-            GlassSurface(
-                Modifier.offset { IntOffset(indicatorOffset.value.roundToPx(), 5.dp.roundToPx()) }
-                    .size(width = 46.dp, height = 28.dp),
-                14.dp, Selected
-            ) {}
-            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).selectableGroup()) {
-                destinations.forEachIndexed { index, (label, icon) ->
-                    val active = tab == index
-                    val interaction = remember { MutableInteractionSource() }
-                    Box(
-                        Modifier.weight(1f).selectable(active, interactionSource = interaction, indication = null,
-                            role = Role.Tab, onClick = {onTab(index)}).padding(vertical = 5.dp),
-                        contentAlignment = Alignment.TopCenter
-                    ) {
-                        Column(
-                            Modifier.pressMotion(interaction, .90f),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            Box(Modifier.height(28.dp), contentAlignment = Alignment.Center) {
-                                Glyph(icon, Modifier.size(20.dp), if(active) Accent else Muted)
-                            }
-                            Text(label, fontSize = 11.sp, color = if(active) Accent else Muted)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 private val resonanceWordmark = buildAnnotatedString {
     append("Resonance")
     append(" ")
@@ -189,35 +142,59 @@ private fun PlaybackChip(label: String, selected: Boolean, onClick: () -> Unit) 
 }
 
 private object CoverMemory {
-    val images = object : LruCache<String, ImageBitmap>(12*1024) {
-        override fun sizeOf(key: String, value: ImageBitmap) = value.width * value.height * 4 / 1024
+    val images = object : LruCache<String, ImageBitmap>(12 * 1024) {
+        override fun sizeOf(key: String, value: ImageBitmap) =
+            (value.width * value.height * 4 + 1023) / 1024
+    }
+    private val locks = Array(16) { Mutex() }
+    private val downloads = Semaphore(3)
+
+    suspend fun load(url: String): ImageBitmap? = withContext(Dispatchers.IO) {
+        val lock = locks[(url.hashCode() and Int.MAX_VALUE) % locks.size]
+        lock.withLock {
+            images.get(url) ?: downloads.withPermit {
+                download(url)?.also { images.put(url, it) }
+            }
+        }
+    }
+
+    private fun download(url: String): ImageBitmap? = try {
+        val connection = URI(url).toURL().openConnection() as HttpURLConnection
+        try {
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+            if (connection.responseCode != 200) null else connection.inputStream.use { input ->
+                val output = ByteArrayOutputStream()
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val bytesRead = input.read(buffer)
+                    if (bytesRead < 0) break
+                    if (output.size() + bytesRead > 1_048_576) return@use null
+                    output.write(buffer, 0, bytesRead)
+                }
+                val data = output.toByteArray()
+                BitmapFactory.decodeByteArray(data, 0, data.size)?.asImageBitmap()
+            }
+        } finally {
+            connection.disconnect()
+        }
+    } catch (_: Exception) {
+        null
     }
 }
 @Composable
-private fun rememberArtwork(song: QqCatalogueTrack?): ImageBitmap? {
+internal fun rememberCoverArtwork(song: QqCatalogueTrack?): ImageBitmap? {
     val url = song?.let(CatalogueStore::artwork)
     var bitmap by remember(url) { mutableStateOf(url?.let { CoverMemory.images.get(it) }) }
     LaunchedEffect(url) {
-        if (url != null && bitmap == null) bitmap = withContext(Dispatchers.IO) {
-            try {
-                val connection = URI(url).toURL().openConnection() as HttpURLConnection
-                try {
-                    connection.connectTimeout=5000;connection.readTimeout=5000
-                    if(connection.responseCode != 200) null else connection.inputStream.use { input ->
-                        val output=ByteArrayOutputStream();val buffer=ByteArray(8192)
-                        while(true) { val n=input.read(buffer);if(n<0)break;if(output.size()+n>1_048_576)throw IllegalStateException();output.write(buffer,0,n) }
-                        BitmapFactory.decodeByteArray(output.toByteArray(),0,output.size())?.asImageBitmap()?.also { CoverMemory.images.put(url,it) }
-                    }
-                } finally {connection.disconnect()}
-            } catch(_:Exception){null}
-        }
+        if (url != null && bitmap == null) bitmap = CoverMemory.load(url)
     }
     return bitmap
 }
 
 @Composable
 fun AlbumCover(song: QqCatalogueTrack?, modifier: Modifier = Modifier) {
-    CoverArt(rememberArtwork(song), modifier)
+    CoverArt(rememberCoverArtwork(song), modifier)
 }
 
 @Composable
@@ -233,86 +210,9 @@ private fun CoverArt(bitmap: ImageBitmap?, modifier: Modifier = Modifier) {
         }
     }
 }
-private fun genreName(value: String) = when(value) {
+internal fun genreName(value: String) = when(value) {
     "pop"->"流行";"rock"->"摇滚";"folk"->"民谣";"jazz"->"爵士";"electronic"->"电子";"hip hop"->"说唱";
     "r&b"->"R&B";"classical"->"古典";"soul"->"灵魂乐";"funk"->"放克";"country"->"乡村";"metal"->"金属";else->value
-}
-
-@Composable
-private fun ListeningCard(connected: Boolean, seed: QqCatalogueTrack?, artwork: ImageBitmap?, onLogin: () -> Unit, onSimilar: () -> Unit) {
-    GlassSurface(Modifier.fillMaxWidth(), 22.dp, Selected, 6.dp, artwork) {
-    Row(
-        Modifier.fillMaxWidth().padding(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        val coverShape = RoundedCornerShape(12.dp)
-        CoverArt(artwork, Modifier.size(88.dp).shadow(7.dp, coverShape).clip(coverShape))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (connected && seed != null) {
-                Text(seed.name, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(seed.artist, fontSize = 12.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            } else {
-                Text(if (connected) "收藏同步后可听相似推荐" else "从你的收藏开始",
-                    fontSize = 17.sp, fontWeight = FontWeight.SemiBold, lineHeight = 23.sp)
-            }
-            if (!connected || seed != null) {
-                val interaction = remember { MutableInteractionSource() }
-                Button(onClick = if (connected) onSimilar else onLogin, interactionSource = interaction,
-                    modifier = Modifier.pressMotion(interaction), contentPadding = PaddingValues(horizontal = 14.dp)) {
-                    Text(if (connected) "相似推荐" else "连接我的 QQ 音乐", fontSize = 12.sp)
-                }
-            }
-        }
-    }
-    }
-}
-
-@Composable
-private fun MiniPlayer(
-    song: QqCatalogueTrack,
-    player: PlayerStatus,
-    artwork: ImageBitmap?,
-    onExpand: () -> Unit,
-    onMode: (String) -> Unit,
-    onPrevious: () -> Unit,
-    onToggle: () -> Unit,
-    onNext: () -> Unit
-) {
-    val mode = PlaybackMode.parse(player.playbackMode)
-    val progress = if (player.durationMs > 0) (player.positionMs.toFloat() / player.durationMs).coerceIn(0f, 1f) else 0f
-    GlassSurface(Modifier.padding(horizontal = 12.dp, vertical = 5.dp).fillMaxWidth(), 17.dp, Raised, 7.dp, artwork) {
-    Column {
-        Box(Modifier.fillMaxWidth().height(2.dp).background(SoftLine)) {
-            Box(Modifier.fillMaxWidth(progress).fillMaxHeight().background(Accent))
-        }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.weight(1f).heightIn(min = 48.dp).clickable(onClickLabel = "展开播放器", onClick = onExpand),
-                verticalAlignment = Alignment.CenterVertically) {
-                CoverArt(artwork, Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)))
-                Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                    Text(song.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    val subtitle = when {
-                        player.loading -> "正在连接音源…"
-                        player.message.contains("无法") -> player.message
-                        else -> song.artist
-                    }
-                    Text(subtitle, color = Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-            val modeInteraction = remember { MutableInteractionSource() }
-            Box(Modifier.sizeIn(minWidth = 42.dp, minHeight = 48.dp)
-                .clickable(interactionSource = modeInteraction, indication = null, role = Role.Button) {onMode(mode.next().name)}
-                .semantics {contentDescription = "播放模式：${mode.label}，点按切换"}, contentAlignment = Alignment.Center) {
-                Text(mode.shortLabel, modifier = Modifier.pressMotion(modeInteraction,.90f), color = Accent, fontSize = 10.sp)
-            }
-            CircleAction(ResonanceGlyph.PREVIOUS, "上一首", onPrevious, size = 44)
-            CircleAction(if (player.playing || (player.loading && player.playRequested)) ResonanceGlyph.PAUSE else ResonanceGlyph.PLAY,
-                "播放或暂停", onToggle, accent = true, size = 44)
-            CircleAction(ResonanceGlyph.NEXT, "下一首", onNext, size = 44)
-        }
-    }
-    }
 }
 
 private fun descriptorName(value:String)=when(value){"mood:bright"->"明快";"mood:sad"->"低落";"mood:calm"->"舒缓";"mood:energetic"->"活力";
@@ -367,7 +267,7 @@ private fun descriptorName(value:String)=when(value){"mood:bright"->"明快";"mo
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit, onSync:()->Unit,
+internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit, onSync:()->Unit,
     onPlay:(QqCatalogueTrack)->Unit, onToggle:()->Unit, onNext:()->Unit, onPrevious:()->Unit, onSeek:(Float)->Unit,
     onLogout:()->Unit, onLegacy:()->Unit, onPlaylists:()->Unit, onPlaylist:(QqCataloguePlaylist)->Unit,
     onRetryMissing:()->Unit = {QqLibrary.retryMissing()}, onRefreshDiscovery:()->Unit = {QqLibrary.warmDiscovery(true)},
@@ -375,7 +275,8 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
     onSupplementMissing:()->Unit = {QqLibrary.retryMissing(true)},onSurprise:()->Unit={},
     onPlaybackMode:(String)->Unit={},onIntent:(ListeningIntent)->Unit={QqLibrary.setIntent(it)},
     onFavorite:(String)->Unit={},onRefreshFavorite:(String)->Unit={},onEnrich:(String?)->Unit={},onPlaybackRange:(String)->Unit={},onClearScores:()->Unit={},
-    onSongFeedback:(String,Set<String>,Boolean)->Unit={_,_,_->}) {
+    onSongFeedback:(String,Set<String>,Boolean)->Unit={_,_,_->}, liveClock:State<PlaybackClock>?=null) {
+    val clock=liveClock ?: rememberUpdatedState(player.clock())
     val context=LocalContext.current
     val settings=remember {context.getSharedPreferences("resonance_settings",0)}
     var tab by remember {mutableIntStateOf(0)}
@@ -408,28 +309,29 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
     var autoDirection by remember {mutableStateOf(settings.getBoolean("qq_auto_direction",true))}
     var supplements by remember {mutableStateOf(settings.getBoolean("catalogue_external_tags",true))}
     var surpriseEnabled by remember {mutableStateOf(settings.getBoolean("qq_surprise_enabled",true))}
-    val current=library.allTracks.firstOrNull {it.mid==player.mid}
-    val seed=current ?: library.favorites.firstOrNull {library.genres[it.mid]?.labels?.isNotEmpty()==true} ?: library.favorites.firstOrNull()
-    val seedArtwork=rememberArtwork(seed)
+    val tracksByMid = remember(library.favorites, library.discoveries) { library.allTracks.associateBy { it.mid } }
+    val current = tracksByMid[player.mid]
+    val seed=current ?: remember(library.favorites,library.genres) {
+        library.favorites.firstOrNull {library.genres[it.mid]?.labels?.isNotEmpty()==true} ?: library.favorites.firstOrNull()
+    }
+    val seedArtwork=rememberCoverArtwork(seed)
     val connected=library.accountScope.isNotBlank()
     val notice=listOfNotNull(player.directionNotice,library.feedback,previewNotice).maxByOrNull {it.createdAt}
     LaunchedEffect(expandedPlayer,current?.mid,detailSong?.mid) {
         if(connected)(detailSong?.mid?:current?.mid?.takeIf {expandedPlayer})?.let(onRefreshFavorite)
     }
-    val browserEntries=remember(tab,library,discoverySearch,unheardOnly,discoveryGenre) {
-        if(tab==1)DiscoveryBrowser.entries(library,discoverySearch,unheardOnly,discoveryGenre) else emptyList()
-    }
-    ResonanceTheme {
+    val browserEntries=if(tab==1) rememberDiscoveryEntries(library,discoverySearch,unheardOnly,discoveryGenre) else null
+    ResonanceTheme { HomeFonts {
         Box(Modifier.fillMaxSize()) {
-        Scaffold(containerColor=Ink,bottomBar={
-            Column(Modifier.background(Ink)) {
-                if(current!=null) MiniPlayer(current,player,seedArtwork,{expandedPlayer=true},onPlaybackMode,onPrevious,onToggle,onNext)
-                GlassNavigation(tab) {tab=it}
-            }
+        Scaffold(containerColor=if(tab==0) HomePalette.ink else Ink,bottomBar={
+            HomeBottomBar(tab, current, player, clock, seedArtwork, {tab=it}, {expandedPlayer=true},
+                onPlaybackMode, onToggle, onNext)
         }) {padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
             LazyColumn(Modifier.fillMaxSize(),state=listState,contentPadding=PaddingValues(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                item {
+                if(tab==0) item {
+                    HomeHeader(connected) {if(connected) tab=3 else onLogin()}
+                } else item {
                     Row(Modifier.fillMaxWidth().padding(bottom=6.dp),verticalAlignment=Alignment.CenterVertically) {
                         Glyph(ResonanceGlyph.WAVE,Modifier.size(23.dp),Accent)
                         Text(resonanceWordmark, fontSize = 21.sp, fontWeight = FontWeight.SemiBold, lineHeight = 23.sp,
@@ -441,50 +343,52 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                     }
                 }
                 if(tab==0) {
+                    val refreshSimilar: () -> Unit = { seed?.let { QqLibrary.similar(it.mid) } }
                     item {
-                        ListeningCard(connected,seed,seedArtwork,onLogin,{seed?.let {QqLibrary.similar(it.mid)}})
+                        HomeHero(connected, seed, seedArtwork, onLogin, refreshSimilar, onSurprise) {
+                            draftIntent=library.intent;scoreTab=false;showIntent=true
+                        }
                     }
                     if(library.syncing || library.analyzing) item {
-                        LinearProgressIndicator(modifier=Modifier.fillMaxWidth().height(2.dp),color=Accent,trackColor=SoftLine)
-                        Text(if(library.syncing)library.message else "正在自动整理曲风 · ${library.taggedCount} 首已有资料",color=Muted,fontSize=11.sp)
+                        HomeCatalogueStatus(library.syncing, library.message, library.taggedCount)
+                    }
+                    if(connected && library.intent.active) item {
+                        Text("想听：${library.intent.wanted.sorted().joinToString {genreName(it)}.ifBlank {"不限"}}\n避开：${library.intent.excluded.sorted().joinToString {genreName(it)}.ifBlank {"不限"}}",
+                            color=HomePalette.muted,fontSize=11.sp,lineHeight=19.sp)
                     }
                     if(connected) item {
-                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                            ListeningAction("随心听",onSurprise,Modifier.weight(1f),outlined=true)
-                            ListeningAction("调整这次选歌",{draftIntent=library.intent;scoreTab=false;showIntent=true},
-                                Modifier.weight(1f),outlined=true)
-                        }
-                        if(library.intent.active)Text("想听：${library.intent.wanted.sorted().joinToString {genreName(it)}.ifBlank {"不限"}}\n避开：${library.intent.excluded.sorted().joinToString {genreName(it)}.ifBlank {"不限"}}",
-                            color=Muted,fontSize=11.sp,lineHeight=19.sp)
+                        HomeScoreCards(library,{draftIntent=library.intent;scoreTab=true;showIntent=true},{showScoreReset=true})
                     }
-                    if(connected)item {
-                        GenreScoreSummary(library,{draftIntent=library.intent;scoreTab=true;showIntent=true},{showScoreReset=true})
-                    }
-                    item {SectionTitle(if(library.recommendation==null)"收藏精选" else "为你推荐",if(library.recommendation==null)"查看全部" else "推荐理由",
-                        {if(library.recommendation==null)tab=2 else showRecommendationReason=!showRecommendationReason})}
                     val recommendations=library.recommendation
                     if(recommendations!=null) {
+                        val refreshMid = seed?.mid ?: recommendations.picks.firstOrNull()?.track?.mediaId?.removePrefix("qq:")
                         item {
-                            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-                                Text(recommendations.heading,modifier=Modifier.weight(1f),color=Accent,fontSize=13.sp)
-                                if(recommendations.picks.isNotEmpty()) Button(onClick={onPlayRecommendation(null)}){Text("播放这批")}
+                            HomeRecommendationHeader("为你推荐", refreshMid?.let { mid -> { QqLibrary.similar(mid); Unit } }, "换一批",
+                                if(recommendations.picks.isNotEmpty()) ({onPlayRecommendation(null)}) else null)
+                        }
+                        item {
+                            HomeRecommendationReason(recommendations, showRecommendationReason) {
+                                showRecommendationReason = !showRecommendationReason
                             }
                         }
-                        if(recommendations.picks.isEmpty() || showRecommendationReason) item {Text(recommendations.explanation,color=Muted,fontSize=12.sp,lineHeight=20.sp)}
                         items(recommendations.picks,key={it.track.mediaId}) {pick ->
-                            library.allTracks.firstOrNull {"qq:${it.mid}"==pick.track.mediaId}?.let {song ->
-                                TrackRow(song,library.genres[song.mid]?.labels.orEmpty(),{onPlayRecommendation(song.mid)},song.mid==player.mid,
-                                    if(pick.unfamiliar)"新歌候选 · ${song.artist}" else song.artist,library.genres[song.mid],onDetails={detailSong=song})
-                                if(pick.surprise)Text("惊喜一首 · 曲风未知",color=Accent,fontSize=10.sp)
-                                if(showRecommendationReason)Text(pick.reason,color=Muted,fontSize=10.sp)
+                            tracksByMid[pick.track.mediaId.removePrefix("qq:")]?.let {song ->
+                                HomeTrackRow(song, pick.reason, song.mid==player.mid,
+                                    {onPlayRecommendation(song.mid)}, {detailSong=song}, unfamiliar = pick.unfamiliar)
+                                if(showRecommendationReason && pick.reason.isNotBlank()) {
+                                    Text(pick.reason,color=HomePalette.signal,fontSize=12.sp)
+                                }
                             }
                         }
                     } else {
-                        items(library.favorites.take(6),key={it.mid}) {song -> TrackRow(song,library.genres[song.mid]?.labels.orEmpty(),{onPlay(song)},song.mid==player.mid,genre=library.genres[song.mid],onDetails={detailSong=song})}
+                        item { HomeRecommendationHeader("收藏精选", {tab=2}, "查看全部") }
+                        items(library.favorites.take(6),key={it.mid}) {song ->
+                            HomeTrackRow(song, "", song.mid==player.mid, {onPlay(song)}, {detailSong=song})
+                        }
                     }
-                    if(library.favorites.isEmpty()) item {Text(if(connected)"收藏正在路上，稍后就会出现在这里。" else "登录后自动同步收藏，无需逐首填写曲风。",color=Muted,fontSize=13.sp,modifier=Modifier.padding(vertical=16.dp))}
+                    if(library.favorites.isEmpty()) item {Text(if(connected)"收藏正在路上，稍后就会出现在这里。" else "登录后自动同步收藏，无需逐首填写曲风。",color=HomePalette.muted,fontSize=13.sp,modifier=Modifier.padding(vertical=16.dp))}
                     if(connected)item {
-                        SectionTitle("收藏外候选 · ${library.outsideCount} 首","去发现") {tab=1}
+                        HomeRecommendationHeader("收藏外候选 · ${library.outsideCount} 首", {tab=1}, "去发现")
                     }
                 } else if(tab==1) {
                     item {SectionTitle("发现新歌",if(library.discovering)"发现中…" else "发现更多",if(library.discovering)null else onRefreshDiscovery)}
@@ -504,14 +408,15 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                             FilterChip(selected=discoveryGenre==label,onClick={discoveryGenre=label},label={Text(genreName(label),fontSize=11.sp)})
                         }
                     }}
-                    val entries=browserEntries
+                    val entries=browserEntries.orEmpty()
                     item {Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                        Text("${entries.size} 首可浏览",fontSize=12.sp,color=Muted,modifier=Modifier.weight(1f))
+                        Text(if(browserEntries==null && connected) "正在整理候选…" else "${entries.size} 首可浏览",
+                            fontSize=12.sp,color=Muted,modifier=Modifier.weight(1f))
                         if(entries.isNotEmpty()) Button(onClick={onPlayDiscovery(entries.take(100).map {it.song.mid},null)}) {
                             Text(if(entries.size>100)"播放前 100 首" else "播放这批",fontSize=12.sp)
                         }
                     }}
-                    if(entries.isEmpty())item {Text(if(!connected)"连接 QQ 音乐后自动发现新歌。" else if(library.discovering)"正在寻找候选，稍后就会出现。" else
+                    if(entries.isEmpty() && (browserEntries!=null || !connected))item {Text(if(!connected)"连接 QQ 音乐后自动发现新歌。" else if(library.discovering)"正在寻找候选，稍后就会出现。" else
                         "暂无符合条件的新歌，可清除筛选或点“发现更多”。",color=Muted,fontSize=13.sp,modifier=Modifier.padding(vertical=18.dp))}
                     items(entries,key={it.song.mid}) {entry ->
                         TrackRow(entry.song,library.genres[entry.song.mid]?.labels.orEmpty(),{
@@ -592,7 +497,7 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Brush.linearGradient(listOf(Selected,Panel)))
                             .padding(20.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
                             Text("陪伴时长",fontSize=13.sp,color=Accent,fontWeight=FontWeight.Medium)
-                            Text("${maxOf(library.listeningTimeMs,player.listeningTimeMs)/60000} 分钟",fontSize=32.sp,fontWeight=FontWeight.SemiBold)
+                            ListeningMinutes(library.listeningTimeMs / 60000, clock)
                             Text("累计听歌时间",fontSize=12.sp,color=Muted)
                         }
                     }
@@ -653,13 +558,7 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                     }
                     FavoriteControl(current,library,onFavorite,compact=true)
                 }
-                var drag by remember(current.mid) {mutableStateOf<Float?>(null)}
-                Slider(value=drag?:if(player.durationMs>0)(player.positionMs.toFloat()/player.durationMs).coerceIn(0f,1f) else 0f,
-                    onValueChange={drag=it},onValueChangeFinished={drag?.let(onSeek);drag=null},modifier=Modifier.fillMaxWidth().padding(top=5.dp))
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
-                    Text(timeText(drag?.let {(player.durationMs*it).toLong()}?:player.positionMs),color=Muted,fontSize=11.sp)
-                    Text(timeText(player.durationMs),color=Muted,fontSize=11.sp)
-                }
+                PlaybackSeekBar(current.mid, player.durationMs, clock, onSeek)
                 Row(Modifier.fillMaxWidth().padding(vertical=10.dp),horizontalArrangement=Arrangement.SpaceEvenly,verticalAlignment=Alignment.CenterVertically) {
                     CircleAction(ResonanceGlyph.PREVIOUS,"上一首",onPrevious,size=48)
                     CircleAction(if(player.playing || (player.loading && player.playRequested))ResonanceGlyph.PAUSE else ResonanceGlyph.PLAY,"播放或暂停",onToggle,true,72)
@@ -788,7 +687,7 @@ fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:()->Unit,
                 }
             }
         }
-    }
+    } }
 }
 
 @Composable
@@ -910,4 +809,47 @@ private fun directionStateName(state:String)=when(state){"PLAYING"->"已确认�
         Switch(checked,onChange)
     }
 }
+@Composable
+private fun rememberDiscoveryEntries(
+    library: LibraryState, search: String, unheardOnly: Boolean, genre: String?
+): List<DiscoveryEntry>? {
+    val input = remember(library.favorites, library.discoveries, library.genres, library.listening,
+        library.scoreSignals, library.manualScores, library.discoverySources, library.intent) { library }
+    return key(library.accountScope, library.intent, search, unheardOnly, genre) {
+        var entries by remember { mutableStateOf<List<DiscoveryEntry>?>(null) }
+        LaunchedEffect(input) {
+            entries = withContext(Dispatchers.Default) { DiscoveryBrowser.entries(input, search, unheardOnly, genre) }
+        }
+        entries
+    }
+}
+
+@Composable
+private fun ListeningMinutes(savedMinutes: Long, clock: State<PlaybackClock>) {
+    val minutes by remember(clock, savedMinutes) {
+        derivedStateOf { maxOf(savedMinutes, clock.value.listeningMinutes) }
+    }
+    Text("$minutes 分钟", fontSize = 32.sp, fontWeight = FontWeight.SemiBold)
+}
+
+@Composable
+private fun PlaybackSeekBar(mid: String, durationMs: Long, clock: State<PlaybackClock>, onSeek: (Float) -> Unit) {
+    val positionMs = clock.value.positionFor(mid)
+    var drag by remember(mid) { mutableStateOf<Float?>(null) }
+    Slider(
+        value = drag ?: playbackFraction(positionMs, durationMs),
+        onValueChange = { drag = it },
+        onValueChangeFinished = { drag?.let(onSeek); drag = null },
+        modifier = Modifier.fillMaxWidth().padding(top = 5.dp)
+    )
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(timeText(drag?.let { (durationMs * it).toLong() } ?: positionMs), color = Muted, fontSize = 11.sp)
+        Text(timeText(durationMs), color = Muted, fontSize = 11.sp)
+    }
+}
+
+private fun PlaybackClock.positionFor(songMid: String): Long = if (mid == songMid) positionMs else 0L
+private fun playbackFraction(positionMs: Long, durationMs: Long): Float =
+    if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+
 private fun timeText(ms:Long):String {val seconds=(ms/1000).coerceAtLeast(0);return "%d:%02d".format(seconds/60,seconds%60)}
