@@ -298,9 +298,9 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
             pendingStrike = false
         }
     }
-    LaunchedEffect(player.playing, motionEnabled, homeActive, logoVisible) {
-        val animate = motionEnabled && homeActive && logoVisible
-        logo.update(if (player.playing && animate) 1f else 0f, Motion.LogoRest, Motion.settle, ticker, animate)
+    LaunchedEffect(ResonanceEngine.isPlaying, motionEnabled, controlsActive, logoVisible) {
+        val animate = motionEnabled && controlsActive && logoVisible
+        logo.update(if (ResonanceEngine.isPlaying && animate) 1f else 0f, Motion.LogoRest, Motion.settle, ticker, animate)
     }
     val playlistSeeds = remember(library.accountScope) { mutableStateMapOf<String, String>() }
     var requestedPlaylist by remember(library.accountScope) { mutableStateOf<QqCataloguePlaylist?>(null) }
@@ -366,12 +366,12 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                 contentPadding = PaddingValues(horizontal = Space.x5, vertical = Space.x3),
                 verticalArrangement = Arrangement.spacedBy(Space.x2)) {
                 item(key = "resonance-logo") {
-                    TopBar(connected, ticker, logo, page == 0 && homeActive && logoVisible) { if (connected) tab = 3 else onLogin() }
+                    TopBar(connected, ticker, logo, page == tab && controlsActive && logoVisible) { if (connected) tab = 3 else onLogin() }
                 }
                 if(page==0) {
                     val refreshSimilar: () -> Unit = { seed?.let { QqLibrary.similar(it.mid) } }
                     item(key = "resonance-plate") {
-                        HomePlate(seed, seedCover, renderer, ticker, animatePlate, player.playing,
+                        HomePlate(seed, seedCover, renderer, ticker, animatePlate,
                             coldPlate, motionEnvironment.systemEnabled) { coldPlate = false }
                     }
                     item {

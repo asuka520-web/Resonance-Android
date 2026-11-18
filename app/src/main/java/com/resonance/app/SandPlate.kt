@@ -90,7 +90,7 @@ internal class SandAnimation(
     val renderer: HomeSandRenderer, val ticker: FrameTicker, val visible: Boolean, val playing: Boolean,
     val match: Float = Motion.DefaultMatch, val cold: Boolean = false, val systemMotion: Boolean = true,
     val onFirstPattern: () -> Unit = {}, val priority: Int = 1,
-    val liveClarity: Boolean = false
+    val liveClarity: Boolean = false, val sigmaDp: Float? = null
 )
 
 private suspend fun loadSand(trackId: String, compact: Boolean): List<FloatArray> {
@@ -161,7 +161,7 @@ internal class HomeSandRenderer {
         val from = FloatArray(count * 2)
         val points = FloatArray(count * 2)
     }
-    private data class Pattern(val trackId: String, val layers: List<FloatArray>, val began: Long?)
+    private data class Pattern(val trackId: String, val layers: List<FloatArray>, val began: Long?, val firstEntry: Boolean)
 
     private val buffers = arrayOf(Buffer(MainGrains), Buffer(LargeGrains), Buffer(LooseGrains))
     private var pattern by mutableStateOf<Pattern?>(null)
@@ -173,10 +173,10 @@ internal class HomeSandRenderer {
 
     fun strike(ticker: FrameTicker) { strikeAt = ticker.request(Motion.Strike, sand = true) }
 
-    fun update(playing: Boolean, match: Float, ticker: FrameTicker, animate: Boolean, liveClarity: Boolean) {
+    fun update(playing: Boolean, match: Float, ticker: FrameTicker, animate: Boolean, liveClarity: Boolean, sigmaDp: Float?) {
         if (playing && amplitude.value(ticker.time) == 0f) playStartedAt = ticker.time
         amplitude.update(if (playing && animate) 1f else 0f, Motion.SandRest, Motion.settle, ticker, animate, sand = true)
-        clarity.update(Motion.sigma(match), Motion.Clarity, Motion.responsive, ticker, animate && !liveClarity, sand = true)
+        clarity.update(sigmaDp ?: Motion.sigma(match), Motion.Clarity, Motion.responsive, ticker, animate && !liveClarity, sand = true)
     }
 
     fun setPattern(trackId: String, layers: List<FloatArray>, cold: Boolean, ticker: FrameTicker, animate: Boolean) {
@@ -201,7 +201,7 @@ internal class HomeSandRenderer {
             }
         }
         pattern = Pattern(trackId, layers, if (animate && (cold || before != null))
-            ticker.request(Motion.TrackChange, sand = true) else null)
+            ticker.request(Motion.TrackChange, sand = true) else null, cold)
     }
 
     fun settle() {
@@ -248,7 +248,8 @@ internal class HomeSandRenderer {
                 var noise = 1f
                 if (age < Motion.Scatter) {
                     x = Motion.mix(from[point], scatteredX, scatter)
-                    y = Motion.mix(from[point + 1], scatteredY, scatter)
+                    val fall = if (current.firstEntry) Motion.progress(age, Motion.Scatter) else scatter
+                    y = Motion.mix(from[point + 1], scatteredY, fall)
                     noise = 0f
                 } else if (age < Motion.TrackChange) {
                     val delay = particles[offset + 5] * Motion.ParticleDelay
@@ -294,11 +295,11 @@ private fun AnimatedSandPlate(trackId: String, animation: SandAnimation, live: B
             if (cold && (animate || !systemMotion)) onFirstPattern()
         }
     }
-    LaunchedEffect(playing, match, animate, animation.liveClarity) {
+    LaunchedEffect(playing, match, animate, animation.liveClarity, animation.sigmaDp) {
         if (!animate) {
             renderer.settle()
         }
-        renderer.update(playing, match, ticker, animate, animation.liveClarity)
+        renderer.update(playing, match, ticker, animate, animation.liveClarity, animation.sigmaDp)
     }
     Canvas(modifier.clip(Corners.plate).background(ResonancePalette.plate).drawWithCache {
         val paints = arrayOf(sandPaint(Space.mainGrain.toPx(), 255), sandPaint(Space.largeGrain.toPx(), 255), sandPaint(Space.looseGrain.toPx(), 89))

@@ -79,11 +79,12 @@ internal fun PlayerStatus.withoutClock() = copy(positionMs = 0, listeningTimeMs 
 
 @Composable
 internal fun HomePlate(song: QqCatalogueTrack?, cover: ArtworkLoad, renderer: HomeSandRenderer, ticker: FrameTicker,
-    visible: Boolean, playing: Boolean, cold: Boolean, systemMotion: Boolean,
+    visible: Boolean, cold: Boolean, systemMotion: Boolean,
     match: Float = Motion.DefaultMatch, onFirstPattern: () -> Unit) {
     Box(Modifier.fillMaxWidth().aspectRatio(350f / 224f), contentAlignment = Alignment.Center) {
-        SandPlate(song?.mid.orEmpty(), Modifier.matchParentSize(), animated = true, animation =
-            SandAnimation(renderer, ticker, visible, playing, match, cold, systemMotion, onFirstPattern))
+        SandPlate(ResonanceEngine.trackSeed.ifBlank { song?.mid.orEmpty() }, Modifier.matchParentSize(), animated = true, animation =
+            SandAnimation(renderer, ticker, visible, playing = false, match, cold, systemMotion, onFirstPattern,
+                sigmaDp = Motion.HomeSigmaDp))
         val shape = Corners.card
         ArtworkTransition(cover, Modifier.size(Space.heroCover), shape, dropShadow = true, visible = visible)
     }

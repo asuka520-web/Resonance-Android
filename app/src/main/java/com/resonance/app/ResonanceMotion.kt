@@ -65,6 +65,7 @@ internal object Motion {
     const val StrikeDamping = .6
     const val Clarity = 600
     const val DefaultMatch = .5f
+    const val HomeSigmaDp = .8f
     const val BatchExit = 200
     const val Press = 90
     const val Release = 160
