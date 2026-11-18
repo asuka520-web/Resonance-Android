@@ -202,11 +202,11 @@ internal fun TextAction(label: String, onClick: () -> Unit, color: Color, descri
 
 @Composable
 internal fun ScoreCard(score: GenreScore, maxAbs: Double, textWidth: Dp, ticker: FrameTicker,
-    systemMotion: Boolean, modifier: Modifier) {
+    systemMotion: Boolean, modifier: Modifier, compact: Boolean = false) {
     Column(modifier.clip(Corners.card).background(ResonancePalette.surface)
         .padding(start = Space.x3, end = Space.x3, top = Space.x3, bottom = Space.scoreBottomInset),
         verticalArrangement = Arrangement.spacedBy(Space.x1)) {
-        ResonanceText(genreName(score.label), TypeSize.secondary, color = ResonancePalette.muted, english = true, lines = 2)
+        ResonanceText(genreName(score.label), TypeSize.secondary, color = ResonancePalette.muted, english = true, lines = if (compact) 1 else 2)
         Box(Modifier.weight(1f))
         val number = scoreMotion(score.combined.toFloat(), Motion.Score, Motion.settle, ticker, systemMotion)
         ScoreNumber(number, maxAbs, textWidth)
@@ -276,11 +276,11 @@ private fun ScoreNumber(value: State<Float>, maxAbs: Double, textWidth: Dp) {
 
 @Composable
 internal fun SectionHeader(title: String, onAction: (() -> Unit)?, action: String,
-    onPlayBatch: (() -> Unit)? = null) {
+    onPlayBatch: (() -> Unit)? = null, actionColor: Color = ResonancePalette.muted) {
     Row(Modifier.fillMaxWidth().padding(top = Space.opticalInset), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
         ResonanceText(title, TypeSize.title, Modifier.weight(1f), weight = FontWeight.Black)
-        if (onAction != null) TextAction(action, onAction, ResonancePalette.muted)
+        if (onAction != null) TextAction(action, onAction, actionColor)
         if (onPlayBatch != null) OutlineButton("播放这批", onPlayBatch)
     }
 }

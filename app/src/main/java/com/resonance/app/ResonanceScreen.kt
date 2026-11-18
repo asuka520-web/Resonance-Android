@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -327,14 +328,15 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
             }
         }
     }
-    val profileRenderer = remember { HomeSandRenderer() }
+    val profileRenderer = remember(library.accountScope) { GraphSandRenderer() }
+    val profileTimeline = rememberProfileTimeline(library, tab == 3 && motionEnvironment.windowReady, player.mid)
+    val companionMinutes = profileMinutes(library.listeningTimeMs, clock)
     val profileGraphVisible by remember(pages[3]) { derivedStateOf { pages[3].partVisible("profile-graph") } }
     val animateGraph = tab == 3 && controlsActive && profileGraphVisible
-    val rated = remember(scores) { scores.filter { it.observations > 0 || it.manual != 0.0 }.sortedByDescending { it.combined } }
     RunResonanceFrames(ticker, motionEnabled && (controlsActive || expandedPlayer),
         ResonanceEngine.isPlaying && controlsActive && (current != null || logoVisible), drawSand = false)
     val hasPlateWork by remember(ticker) { derivedStateOf { ticker.hasSandWork() } }
-    MonitorResonanceFrames(ticker, motionEnabled && animatePlate && (player.playing || hasPlateWork) && !ticker.reducedQuality)
+    MonitorResonanceFrames(ticker, motionEnabled && (animatePlate || animateGraph) && (player.playing || hasPlateWork) && !ticker.reducedQuality)
     val notice=listOfNotNull(player.directionNotice,library.feedback,previewNotice).maxByOrNull {it.createdAt}
     LaunchedEffect(expandedPlayer,current?.mid,detailSong?.mid) {
         if(connected)(detailSong?.mid?:current?.mid?.takeIf {expandedPlayer})?.let(onRefreshFavorite)
@@ -583,19 +585,19 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                         }
                     }
                 } else {
-                    item { SectionHeader("共振图谱", null, "") }
+                    item {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.x2),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Text("共振图谱", Modifier.weight(1f), fontSize = TypeSize.title, fontWeight = FontWeight.Black)
+                            Text("正分叠加，负分反相抵消", color = Muted, fontSize = TypeSize.secondary)
+                        }
+                    }
                     item(key = "profile-graph") {
-                        val seed = rated.take(3).joinToString("|") { it.label }.ifBlank { "profile-empty" }
-                        val density = (.025f + rated.size / 45f).coerceAtMost(1f)
-                        SandPlate(seed, Modifier.fillMaxWidth().aspectRatio(350f / 224f), density = density, animated = true,
-                            animation = SandAnimation(profileRenderer, ticker, animateGraph, false))
+                        ResonanceGraph(profileRenderer, scores, companionMinutes.value, profileTimeline.newCompletions,
+                            animateGraph, Modifier.fillMaxWidth().aspectRatio(350f / 280f))
                     }
                     item {
-                        Column(Modifier.fillMaxWidth().padding(vertical = Space.x3), verticalArrangement = Arrangement.spacedBy(Space.x1)) {
-                            Text("陪伴时长", fontSize = TypeSize.action, color = Accent, fontWeight = FontWeight.Medium)
-                            ListeningMinutes(library.listeningTimeMs / 60000, clock)
-                            Text("累计听歌时间", fontSize = TypeSize.secondary, color = Muted)
-                        }
+                        ProfileHours(companionMinutes.value, profileTimeline.week)
                         HorizontalDivider(color = SoftLine)
                     }
                     if (connected) item {
@@ -864,13 +866,21 @@ private fun directionStateName(state:String)=when(state){"PLAYING"->"已确认�
 private fun GenreScoreSummary(scores: List<GenreScore>, ticker: FrameTicker, systemMotion: Boolean,
     onAll: () -> Unit, onClear: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(vertical = Space.x2), verticalArrangement = Arrangement.spacedBy(Space.x2)) {
-        SectionHeader("当前标签分数", onAll, "查看全部 ${scores.size} 项")
+        SectionHeader("当前标签分数", onAll, "查看全部 ${scores.size} 项", actionColor = Accent)
         if (scores.isEmpty()) Text("暂无曲风标签，取得资料后会在这里显示。", fontSize = TypeSize.secondary, color = Muted)
-        else LazyRow(horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
+        else LazyRow(
+            modifier = Modifier.layout { measurable, constraints ->
+                val inset = Space.x5.roundToPx()
+                val row = measurable.measure(constraints.copy(maxWidth = constraints.maxWidth + inset))
+                layout(constraints.maxWidth, row.height) { row.placeRelative(0, 0) }
+            },
+            contentPadding = PaddingValues(end = Space.x5),
+            horizontalArrangement = Arrangement.spacedBy(Space.tileGap)
+        ) {
             val maxAbs = (scores.firstOrNull()?.let { abs(it.combined) } ?: 0.0).coerceAtLeast(6.0)
             items(scores, key = { it.label }) { score ->
-                ScoreCard(score, maxAbs, Space.x8 * 3, ticker, systemMotion,
-                    Modifier.width(Space.x8 * 3 + Space.x6).heightIn(min = Space.heroCover))
+                ScoreCard(score, maxAbs, Space.profileScoreWidth - Space.x6, ticker, systemMotion,
+                    Modifier.size(Space.profileScoreWidth, Space.heroCover), compact = true)
             }
         }
         TextAction("清除当前所有分数", onClear, Muted)
@@ -904,12 +914,4 @@ private fun rememberDiscoveryEntries(
         }
         entries
     }
-}
-
-@Composable
-private fun ListeningMinutes(savedMinutes: Long, clock: State<PlaybackClock>) {
-    val minutes by remember(clock, savedMinutes) {
-        derivedStateOf { maxOf(savedMinutes, clock.value.listeningMinutes) }
-    }
-    Text("$minutes 分钟", fontSize = TypeSize.largeNumber, fontWeight = FontWeight.SemiBold)
 }

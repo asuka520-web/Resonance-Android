@@ -60,6 +60,8 @@ internal object Space {
     val listCover = 56.dp
     val dockCover = 42.dp
     val heroCover = 96.dp
+    val weekTileWidth = 44.dp
+    val profileScoreWidth = 140.dp
     val tileGap = 10.dp
     val thin = 1.dp
     val focus = 1.5.dp
@@ -109,6 +111,7 @@ internal object TypeSize {
     val panelTitle = 24.sp
     val songLine = 28.08.sp
     val largeNumber = 32.sp
+    val companionNumber = 54.sp
     val wordmarkTracking = 1.5.sp
     val logoTracking = (-.02).em
 }

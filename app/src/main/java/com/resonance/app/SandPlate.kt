@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
@@ -109,23 +110,31 @@ private suspend fun loadSand(trackId: String, compact: Boolean): List<FloatArray
 @Composable
 internal fun SandPlate(trackId: String, modifier: Modifier = Modifier,
     ticker: FrameTicker? = null, fadeStartedAt: Long? = null,
-    density: Float = 1f, opacity: Float = 1f, animated: Boolean = false, animation: SandAnimation? = null) {
+    density: Float = 1f, opacity: Float = 1f, animated: Boolean = false, animation: SandAnimation? = null,
+    grainCount: Int? = null, background: Color = ResonancePalette.plate) {
+    val max = if (animation == null) SmallGrains else FullGrains
+    val requested = grainCount?.coerceIn(0, max) ?: (max * density.coerceIn(0f, 1f)).toInt()
+    WithSandBudget(modifier, requested, animation?.priority ?: 0) { placed, granted ->
+        if (animation != null) AnimatedSandPlate(trackId, animation, animated, granted, placed)
+        else CompactSandPlate(trackId, placed, ticker, fadeStartedAt, opacity, background, granted)
+    }
+}
+
+@Composable
+internal fun WithSandBudget(modifier: Modifier, requested: Int, priority: Int,
+    content: @Composable (Modifier, () -> Int) -> Unit) {
     val budget = LocalSandBudget.current
     val id = remember { Any() }
-    val requested = ((if (animation == null) SmallGrains else FullGrains) * density.coerceIn(0f, 1f)).toInt()
     DisposableEffect(id, budget) { onDispose { budget?.place(id, 0, 0) } }
     val placed = modifier.onGloballyPositioned { coordinates ->
-        budget?.place(id, if (coordinates.boundsInWindow().isEmpty) 0 else requested, animation?.priority ?: 0)
+        budget?.place(id, if (coordinates.boundsInWindow().isEmpty) 0 else requested, priority)
     }
-    val granted = { budget?.granted(id) ?: requested }
-    if (animation != null) {
-        AnimatedSandPlate(trackId, animation, animated, granted, placed)
-    } else CompactSandPlate(trackId, placed, ticker, fadeStartedAt, opacity, granted)
+    content(placed) { budget?.granted(id) ?: requested }
 }
 
 @Composable
 private fun CompactSandPlate(trackId: String, modifier: Modifier,
-    ticker: FrameTicker?, fadeStartedAt: Long?, opacity: Float, granted: () -> Int) {
+    ticker: FrameTicker?, fadeStartedAt: Long?, opacity: Float, background: Color, granted: () -> Int) {
     var layers by remember(trackId) { mutableStateOf(sandCache.get(trackId)?.small) }
     LaunchedEffect(trackId) { if (layers == null) layers = loadSand(trackId, compact = true) }
     val points = remember { FloatArray(SmallGrains * 2) }
@@ -133,7 +142,7 @@ private fun CompactSandPlate(trackId: String, modifier: Modifier,
         alpha = 1f - Motion.progress(ticker.age(fadeStartedAt), Motion.BatchExit)
     } else Modifier
     Canvas(
-        modifier.then(exitFade).clip(Corners.cover).background(ResonancePalette.plate)
+        modifier.then(exitFade).clip(Corners.cover).background(background)
             .drawWithCache {
                 val jitter = Space.restJitter.toPx()
                 val particles = layers?.single()
@@ -323,18 +332,23 @@ private fun AnimatedSandPlate(trackId: String, animation: SandAnimation, live: B
     }) {}
 }
 
-private fun sandPaint(radius: Float, opacity: Int) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+internal fun sandPaint(radius: Float, opacity: Int) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
     color = ResonancePalette.sand.toArgb()
     alpha = opacity
     strokeWidth = radius * 2
     strokeCap = Paint.Cap.ROUND
 }
 
+internal fun chladniMode(seed: String): Pair<Int, Int> {
+    val hash = seed.hashCode() and Int.MAX_VALUE
+    val n = 1 + hash % 5
+    val candidate = 1 + (hash shr 8) % 6
+    return n to if (candidate == n) candidate % 6 + 1 else candidate
+}
+
 private fun generateSand(trackId: String, compact: Boolean, context: CoroutineContext): List<FloatArray> {
     val hash = trackId.hashCode() and Int.MAX_VALUE
-    val n = 1 + hash % 5
-    val mCandidate = 1 + (hash shr 8) % 6
-    val m = if (mCandidate == n) mCandidate % 6 + 1 else mCandidate
+    val (n, m) = chladniMode(trackId)
     val random = Random(hash.toLong())
     val dynamics = Random(hash.toLong() xor 0x517cc1b7L)
     val nPi = n * PI

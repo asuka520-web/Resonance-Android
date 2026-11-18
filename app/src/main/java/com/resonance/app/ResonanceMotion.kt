@@ -54,6 +54,13 @@ internal object Motion {
     const val TrackChange = Scatter + Gather + ParticleDelay
     const val Cover = 200
     const val CoverInitialScale = .96f
+    const val NominalFrameMs = 1000f / 60f
+    const val GraphTrackBlend = 3000
+    const val GraphDrop = 480
+    const val GraphSongWeight = .3f
+    const val GraphFlowMin = .002f
+    const val GraphFlowMax = .01f
+    const val GraphFlow = .003f
     const val SandRest = 300
     const val LogoRest = 250
     const val LogoMinPeriod = 900
