@@ -189,10 +189,11 @@ private fun ActionButton(onClick: () -> Unit, modifier: Modifier, solid: Boolean
 }
 
 @Composable
-internal fun TextAction(label: String, onClick: () -> Unit, color: Color, description: String = label) {
+internal fun TextAction(label: String, onClick: () -> Unit, color: Color, description: String = label, enabled: Boolean = true) {
     val interaction = remember { MutableInteractionSource() }
     Box(Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-        .clickable(interaction, LocalIndication.current, role = Role.Button, onClick = onClick).resonancePress(interaction)
+        .clickable(interaction, LocalIndication.current, enabled = enabled, role = Role.Button, onClick = onClick)
+        .resonancePress(interaction)
         .semantics { contentDescription = description }.padding(horizontal = 5.dp), contentAlignment = Alignment.Center) {
         ResonanceText(label, 13, color = color, english = true)
     }
