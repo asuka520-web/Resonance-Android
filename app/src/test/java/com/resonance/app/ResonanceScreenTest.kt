@@ -3,6 +3,7 @@ package com.resonance.app
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.os.SystemClock
+import android.provider.Settings
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
@@ -121,6 +122,29 @@ class ResonanceScreenTest {
         compose.onNodeWithText("收藏外测试歌曲").performScrollTo().performClick()
         assertEquals("newSong",selected)
         assertFalse(ordinaryPlayed)
+    }
+    @Test fun reducedMotionRefreshesTheBatchWithoutWaitingForFadingArtwork() {
+        val resolver = compose.activity.contentResolver
+        val key = Settings.Global.ANIMATOR_DURATION_SCALE
+        val saved = Settings.Global.getFloat(resolver, key, 1f)
+        Settings.Global.putFloat(resolver, key, 0f)
+        try {
+            val song = QqCatalogueTrack("batch","batch","换批测试歌","测试歌手","专辑",200000)
+            val pick = StylePick(StyleTrack("qq:batch", song.name, song.artist, "qq:batch", emptySet()), "曲库候选", false)
+            var refreshed: String? = null
+            compose.setContent {
+                ResonanceScreen(LibraryState(accountScope = "test", favorites = listOf(song),
+                    recommendation = StylePlan("候选", "试听", listOf(pick))), PlayerStatus(),
+                    {},{},{},{},{},{},{},{},{},{},{},onRefreshRecommendation = { refreshed = it })
+            }
+            compose.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("换一批"))
+            compose.mainClock.autoAdvance = false
+            compose.onNodeWithText("换一批").performClick()
+            assertEquals(song.mid, refreshed)
+        } finally {
+            compose.mainClock.autoAdvance = true
+            Settings.Global.putFloat(resolver, key, saved)
+        }
     }
     @Test fun discoveryTabShowsSourceAndPlaysTheVisibleCandidateQueue() {
         val seed=QqCatalogueTrack("seed","seed","收藏锚点","测试歌手","专辑",200000)
