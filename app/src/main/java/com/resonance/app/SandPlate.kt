@@ -7,11 +7,15 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
@@ -19,6 +23,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import java.util.Random
 import kotlinx.coroutines.Dispatchers
@@ -37,12 +43,55 @@ private const val LargeGrains = 320
 private const val LooseGrains = 240
 private const val SmallGrains = 230
 private const val SineTableSize = 2048
+internal const val ScreenGrainLimit = 2100
+private const val FullGrains = MainGrains + LargeGrains + LooseGrains
 private val sineTable = FloatArray(SineTableSize) { sin(2 * PI * it / SineTableSize).toFloat() }
 private fun wave(cycles: Float): Float = sineTable[(cycles * SineTableSize).toInt() and (SineTableSize - 1)]
 
 private class CachedPlate(val full: List<FloatArray>? = null, val small: List<FloatArray>? = null)
 
 private val sandCache = LruCache<String, CachedPlate>(20)
+
+internal val LocalSandBudget = staticCompositionLocalOf<SandBudget?> { null }
+
+/** A visible board has priority over thumbnails. Each group shares its remaining slice. */
+internal class SandBudget {
+    private data class Request(val count: Int, val priority: Int)
+    private val requests = linkedMapOf<Any, Request>()
+    private val visibleGrants = mutableStateMapOf<Any, Int>()
+
+    fun granted(id: Any): Int = visibleGrants[id] ?: 0
+
+    fun place(id: Any, count: Int, priority: Int) {
+        val request = Request(count, priority)
+        if (requests[id] == request || (count == 0 && id !in requests)) return
+        if (count == 0) requests.remove(id) else requests[id] = request
+        Snapshot.withMutableSnapshot {
+            if (count == 0) visibleGrants.remove(id)
+            var remaining = ScreenGrainLimit
+            requests.entries.groupBy { it.value.priority }.toSortedMap(reverseOrder()).values.forEach { group ->
+                val demand = group.sumOf { it.value.count }
+                val supply = remaining.coerceAtMost(demand)
+                var assigned = 0
+                var cumulative = 0
+                group.forEach { entry ->
+                    cumulative += entry.value.count
+                    val total = (cumulative.toLong() * supply / demand).toInt()
+                    visibleGrants[entry.key] = total - assigned
+                    assigned = total
+                }
+                remaining -= supply
+            }
+        }
+    }
+}
+
+internal class SandAnimation(
+    val renderer: HomeSandRenderer, val ticker: FrameTicker, val visible: Boolean, val playing: Boolean,
+    val match: Float = Motion.DefaultMatch, val cold: Boolean = false, val systemMotion: Boolean = true,
+    val onFirstPattern: () -> Unit = {}, val priority: Int = 1,
+    val repeat: Boolean = false
+)
 
 private suspend fun loadSand(trackId: String, compact: Boolean): List<FloatArray> {
     val cached = sandCache.get(trackId)?.let { if (compact) it.small else it.full }
@@ -59,7 +108,24 @@ private suspend fun loadSand(trackId: String, compact: Boolean): List<FloatArray
 
 @Composable
 internal fun SandPlate(trackId: String, modifier: Modifier = Modifier,
-    ticker: FrameTicker? = null, batch: BatchSandMotion? = null, row: Int = 0) {
+    ticker: FrameTicker? = null, batch: BatchSandMotion? = null, row: Int = 0,
+    density: Float = 1f, animation: SandAnimation? = null) {
+    val budget = LocalSandBudget.current
+    val id = remember { Any() }
+    val requested = ((if (animation == null) SmallGrains else FullGrains) * density.coerceIn(0f, 1f)).toInt()
+    DisposableEffect(id, budget) { onDispose { budget?.place(id, 0, 0) } }
+    val placed = modifier.onGloballyPositioned { coordinates ->
+        budget?.place(id, if (coordinates.boundsInWindow().isEmpty) 0 else requested, animation?.priority ?: 0)
+    }
+    val granted = { budget?.granted(id) ?: requested }
+    if (animation != null) {
+        AnimatedSandPlate(trackId, animation, granted, placed)
+    } else CompactSandPlate(trackId, placed, ticker, batch, row, granted)
+}
+
+@Composable
+private fun CompactSandPlate(trackId: String, modifier: Modifier,
+    ticker: FrameTicker?, batch: BatchSandMotion?, row: Int, granted: () -> Int) {
     var layers by remember(trackId) { mutableStateOf(sandCache.get(trackId)?.small) }
     LaunchedEffect(trackId) { if (layers == null) layers = loadSand(trackId, compact = true) }
     val points = remember { FloatArray(SmallGrains * 2) }
@@ -68,7 +134,7 @@ internal fun SandPlate(trackId: String, modifier: Modifier = Modifier,
         alpha = 1f - Motion.progress(ticker!!.age(batch.startedAt) - row * Motion.BatchExitStagger, Motion.BatchExit)
     } else Modifier
     Canvas(
-        modifier.then(exitFade).clip(RoundedCornerShape(14.dp)).background(HomePalette.plate)
+        modifier.then(exitFade).clip(Corners.cover).background(ResonancePalette.plate)
             .drawWithCache {
                 val jitter = 1.2.dp.toPx()
                 val drift = 6.dp.toPx()
@@ -101,7 +167,8 @@ internal fun SandPlate(trackId: String, modifier: Modifier = Modifier,
                             else project(1f, Motion.accelerate.transform(
                                 Motion.progress(age - row * Motion.BatchExitStagger, Motion.BatchExit)))
                         }
-                        drawContext.canvas.nativeCanvas.drawPoints(points, paint)
+                        val count = granted()
+                        if (count > 0) drawContext.canvas.nativeCanvas.drawPoints(points, 0, count * 2, paint)
                     }
                 }
             }
@@ -164,10 +231,13 @@ internal class HomeSandRenderer {
     }
 
     fun draw(canvas: android.graphics.Canvas, size: Size, density: Float, ticker: FrameTicker,
-        paints: Array<Paint>, animate: Boolean) {
+        paints: Array<Paint>, animate: Boolean, limit: Int, repeat: Boolean) {
         val current = pattern ?: return
         val begin = current.began
-        val age = if (animate && begin != null) ticker.age(begin, sand = true) else Motion.TrackChange.toFloat()
+        val age = if (animate && begin != null) {
+            val elapsed = ticker.age(begin, sand = true)
+            if (repeat) elapsed % Motion.TrackChange else elapsed
+        } else Motion.TrackChange.toFloat()
         val scatter = if (age < Motion.Scatter) Motion.accelerate.transform(Motion.progress(age, Motion.Scatter)) else 1f
         val now = if (animate) ticker.sandTime else 0L
         val strike = strikeAt
@@ -182,7 +252,7 @@ internal class HomeSandRenderer {
             val points = buffers[layerIndex].points
             val from = buffers[layerIndex].from
             val particles = current.layers[layerIndex]
-            val count = points.size / if (reduce) 4 else 2
+            val count = ((points.size / 2) * minOf(limit, if (reduce) FullGrains / 2 else FullGrains)) / FullGrains
             for (index in 0 until count) {
                 val offset = index * ParticleStride
                 val point = index * 2
@@ -219,15 +289,21 @@ internal class HomeSandRenderer {
 }
 
 @Composable
-internal fun AnimatedSandPlate(trackId: String, renderer: HomeSandRenderer, ticker: FrameTicker,
-    visible: Boolean, playing: Boolean, match: Float, cold: Boolean, systemMotion: Boolean,
-    onFirstPattern: () -> Unit, modifier: Modifier = Modifier) {
+private fun AnimatedSandPlate(trackId: String, animation: SandAnimation, granted: () -> Int, modifier: Modifier) {
+    val renderer = animation.renderer
+    val ticker = animation.ticker
+    val visible = animation.visible
+    val playing = animation.playing
+    val match = animation.match
+    val cold = animation.cold
+    val systemMotion = animation.systemMotion
+    val onFirstPattern = animation.onFirstPattern
     val animate = LocalResonanceMotion.current && visible
     var loaded by remember(trackId) { mutableStateOf(sandCache.get(trackId)?.full) }
     LaunchedEffect(trackId) { if (loaded == null) loaded = loadSand(trackId, compact = false) }
     LaunchedEffect(trackId, loaded, animate, cold, systemMotion) {
         loaded?.let { layers ->
-            renderer.setPattern(trackId, layers, cold, ticker, animate)
+            renderer.setPattern(trackId, layers, cold || animation.repeat, ticker, animate)
             if (cold && (animate || !systemMotion)) onFirstPattern()
         }
     }
@@ -238,28 +314,30 @@ internal fun AnimatedSandPlate(trackId: String, renderer: HomeSandRenderer, tick
         }
         renderer.update(playing, match, ticker, animate)
     }
-    Canvas(modifier.clip(RoundedCornerShape(32.dp)).background(HomePalette.plate).drawWithCache {
+    Canvas(modifier.clip(Corners.plate).background(ResonancePalette.plate).drawWithCache {
         val paints = arrayOf(sandPaint(.85.dp.toPx(), 255), sandPaint(1.3.dp.toPx(), 255), sandPaint(.6.dp.toPx(), 89))
         val scale = density
         onDrawBehind {
+            val limit = granted()
+            if (limit == 0) return@onDrawBehind
             if (animate) {
                 val startedAt = System.nanoTime()
                 Trace.beginSection("ResonanceSandPlate")
                 try {
-                    renderer.draw(drawContext.canvas.nativeCanvas, size, scale, ticker, paints, true)
+                    renderer.draw(drawContext.canvas.nativeCanvas, size, scale, ticker, paints, true, limit, animation.repeat)
                 } finally {
                     Trace.endSection()
                 }
                 ticker.reportFrame(System.nanoTime() - startedAt)
             } else {
-                renderer.draw(drawContext.canvas.nativeCanvas, size, scale, ticker, paints, false)
+                renderer.draw(drawContext.canvas.nativeCanvas, size, scale, ticker, paints, false, limit, animation.repeat)
             }
         }
     }) {}
 }
 
 private fun sandPaint(radius: Float, opacity: Int) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-    color = HomePalette.sand.toArgb()
+    color = ResonancePalette.sand.toArgb()
     alpha = opacity
     strokeWidth = radius * 2
     strokeCap = Paint.Cap.ROUND

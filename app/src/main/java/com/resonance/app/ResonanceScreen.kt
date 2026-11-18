@@ -71,23 +71,14 @@ import java.net.HttpURLConnection
 import java.net.URI
 import kotlin.math.abs
 
-internal const val ResonanceBackgroundArgb = 0xFF111119
-private val Ink = Color(ResonanceBackgroundArgb)
-private val Panel = Color(0xFF1B1B26)
-private val Raised = Color(0xFF272638)
-private val Selected = Color(0xFF342A49)
-private val Muted = Color(0xFFB0ADBF)
-private val Accent = Color(0xFFD8C5FF)
-private val Cream = Color(0xFFF5F1FA)
-private val SoftLine = Color(0xFF363446)
-
-@Composable
-fun ResonanceTheme(content: @Composable () -> Unit) = MaterialTheme(
-    colorScheme = darkColorScheme(primary = Accent, onPrimary = Ink, background = Ink, onBackground = Cream,
-        surface = Panel, onSurface = Cream, secondary = Accent, outline = SoftLine,
-        primaryContainer = Selected, onPrimaryContainer = Accent,
-        secondaryContainer = Selected, onSecondaryContainer = Accent,
-        surfaceVariant = Raised, onSurfaceVariant = Muted), content = content)
+private val Ink = ResonancePalette.ink
+private val Panel = ResonancePalette.surface
+private val Raised = ResonancePalette.raised
+private val Selected = ResonancePalette.line
+private val Muted = ResonancePalette.muted
+private val Accent = ResonancePalette.signal
+private val Cream = ResonancePalette.sand
+private val SoftLine = ResonancePalette.line
 
 enum class ResonanceGlyph { PLAY, PAUSE, NEXT, PREVIOUS, HOME, LIBRARY, PERSON, SEARCH, HEART, BACK, CLOSE, REFRESH, WAVE, DETAILS }
 
@@ -211,7 +202,7 @@ fun AlbumCover(song: QqCatalogueTrack?, modifier: Modifier = Modifier) {
 
 @Composable
 private fun CoverArt(bitmap: ImageBitmap?, modifier: Modifier = Modifier) {
-    Box(modifier.background(Brush.linearGradient(listOf(Color(0xFF504263),Color(0xFF2A2940)))),contentAlignment=Alignment.Center) {
+    Box(modifier.background(Brush.linearGradient(listOf(ResonancePalette.raised, ResonancePalette.surface))),contentAlignment=Alignment.Center) {
         if(bitmap!=null) Image(bitmap,null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
         else Canvas(Modifier.fillMaxSize().padding(8.dp)) {
             val r=size.minDimension*.4f
@@ -250,7 +241,7 @@ private fun descriptorName(value:String)=when(value){"mood:bright"->"明快";"mo
         Box(
             if(accent) surface.shadow(if(size > 48) 14.dp else 7.dp, CircleShape,
                 ambientColor = Accent.copy(alpha = .40f), spotColor = Accent.copy(alpha = .34f))
-                .clip(CircleShape).background(Brush.linearGradient(listOf(Color(0xFFF1E6FF), Accent, Color(0xFFB29CE0))))
+                .clip(CircleShape).background(Brush.linearGradient(listOf(ResonancePalette.signal, ResonancePalette.signal)))
             else surface,
             contentAlignment = Alignment.Center
         ) {
@@ -262,7 +253,7 @@ private fun descriptorName(value:String)=when(value){"mood:bright"->"明快";"mo
         }
     }
 }
-@Composable private fun TrackRow(song:QqCatalogueTrack, labels:Set<String>, onClick:()->Unit, current:Boolean=false, note:String="", genre:CatalogueGenre?=null,onDetails:(()->Unit)?=null) {
+@Composable private fun LegacyTrackRow(song:QqCatalogueTrack, labels:Set<String>, onClick:()->Unit, current:Boolean=false, note:String="", genre:CatalogueGenre?=null,onDetails:(()->Unit)?=null) {
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick=onClick).padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
         AlbumCover(song,Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)))
         Column(Modifier.weight(1f).padding(horizontal=13.dp),verticalArrangement=Arrangement.spacedBy(5.dp)) {
@@ -403,16 +394,16 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
         if(connected)(detailSong?.mid?:current?.mid?.takeIf {expandedPlayer})?.let(onRefreshFavorite)
     }
     val browserEntries=if(tab==1) rememberDiscoveryEntries(library,discoverySearch,unheardOnly,discoveryGenre) else null
-    ResonanceTheme { HomeFonts { CompositionLocalProvider(LocalResonanceMotion provides motionEnabled) {
+    ResonanceTheme { CompositionLocalProvider(LocalResonanceMotion provides motionEnabled) {
         Box(Modifier.fillMaxSize()) {
-        Scaffold(containerColor=if(tab==0) HomePalette.ink else Ink,bottomBar={
-            HomeBottomBar(tab, current, player, clock, seedArtwork, ticker, {tab=it}, {expandedPlayer=true},
+        Scaffold(containerColor=if(tab==0) ResonancePalette.ink else Ink,bottomBar={
+            Dock(tab, current, player, clock, seedArtwork, ticker, {tab=it}, {expandedPlayer=true},
                 onPlaybackMode, onToggle, onNext)
         }) {padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
             LazyColumn(Modifier.fillMaxSize(),state=listState,contentPadding=PaddingValues(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                 if(tab==0) item(key = "resonance-logo") {
-                    HomeHeader(connected, ticker, logo, homeActive && logoVisible) {if(connected) tab=3 else onLogin()}
+                    TopBar(connected, ticker, logo, homeActive && logoVisible) {if(connected) tab=3 else onLogin()}
                 } else item {
                     Row(Modifier.fillMaxWidth().padding(bottom=6.dp),verticalAlignment=Alignment.CenterVertically) {
                         Glyph(ResonanceGlyph.WAVE,Modifier.size(23.dp),Accent)
@@ -440,7 +431,7 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                     }
                     if(connected && library.intent.active) item {
                         Text("想听：${library.intent.wanted.sorted().joinToString {genreName(it)}.ifBlank {"不限"}}\n避开：${library.intent.excluded.sorted().joinToString {genreName(it)}.ifBlank {"不限"}}",
-                            color=HomePalette.muted,fontSize=11.sp,lineHeight=19.sp)
+                            color=ResonancePalette.muted,fontSize=11.sp,lineHeight=19.sp)
                     }
                     if(connected) item {
                         HomeScoreCards(scores, ticker, motionEnvironment.systemEnabled,
@@ -450,7 +441,7 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                     if(recommendations!=null) {
                         val refreshMid = seed?.mid ?: recommendations.picks.firstOrNull()?.track?.mediaId?.removePrefix("qq:")
                         item {
-                            HomeRecommendationHeader("为你推荐", refreshMid?.let { mid -> { refreshBatch(mid, recommendations.picks.size) } }, "换一批",
+                            SectionHeader("为你推荐", refreshMid?.let { mid -> { refreshBatch(mid, recommendations.picks.size) } }, "换一批",
                                 if(recommendations.picks.isNotEmpty()) ({onPlayRecommendation(null)}) else null)
                         }
                         item {
@@ -461,23 +452,23 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                         // Keep the artwork slot mounted during batch replacement so both covers can blend.
                         itemsIndexed(recommendations.picks, key = { index, _ -> "resonance-pick-$index" }) { index, pick ->
                             tracksByMid[pick.track.mediaId.removePrefix("qq:")]?.let {song ->
-                                HomeTrackRow(song, pick.reason, song.mid==player.mid,
+                                TrackRow(song, pick.reason, song.mid==player.mid,
                                     {onPlayRecommendation(song.mid)}, {detailSong=song}, unfamiliar = pick.unfamiliar,
                                     ticker = ticker, batch = batchMotion, row = index)
                                 if(showRecommendationReason && pick.reason.isNotBlank()) {
-                                    Text(pick.reason,color=HomePalette.signal,fontSize=12.sp)
+                                    Text(pick.reason,color=ResonancePalette.signal,fontSize=12.sp)
                                 }
                             }
                         }
                     } else {
-                        item { HomeRecommendationHeader("收藏精选", {tab=2}, "查看全部") }
+                        item { SectionHeader("收藏精选", {tab=2}, "查看全部") }
                         items(library.favorites.take(6),key={it.mid}) {song ->
-                            HomeTrackRow(song, "", song.mid==player.mid, {onPlay(song)}, {detailSong=song})
+                            TrackRow(song, "", song.mid==player.mid, {onPlay(song)}, {detailSong=song})
                         }
                     }
-                    if(library.favorites.isEmpty()) item {Text(if(connected)"收藏正在路上，稍后就会出现在这里。" else "登录后自动同步收藏，无需逐首填写曲风。",color=HomePalette.muted,fontSize=13.sp,modifier=Modifier.padding(vertical=16.dp))}
+                    if(library.favorites.isEmpty()) item {Text(if(connected)"收藏正在路上，稍后就会出现在这里。" else "登录后自动同步收藏，无需逐首填写曲风。",color=ResonancePalette.muted,fontSize=13.sp,modifier=Modifier.padding(vertical=16.dp))}
                     if(connected)item {
-                        HomeRecommendationHeader("收藏外候选 · ${library.outsideCount} 首", {tab=1}, "去发现")
+                        SectionHeader("收藏外候选 · ${library.outsideCount} 首", {tab=1}, "去发现")
                     }
                 } else if(tab==1) {
                     item {SectionTitle("发现新歌",if(library.discovering)"发现中…" else "发现更多",if(library.discovering)null else onRefreshDiscovery)}
@@ -508,7 +499,7 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                     if(entries.isEmpty() && (browserEntries!=null || !connected))item {Text(if(!connected)"连接 QQ 音乐后自动发现新歌。" else if(library.discovering)"正在寻找候选，稍后就会出现。" else
                         "暂无符合条件的新歌，可清除筛选或点“发现更多”。",color=Muted,fontSize=13.sp,modifier=Modifier.padding(vertical=18.dp))}
                     items(entries,key={it.song.mid}) {entry ->
-                        TrackRow(entry.song,library.genres[entry.song.mid]?.labels.orEmpty(),{
+                        LegacyTrackRow(entry.song,library.genres[entry.song.mid]?.labels.orEmpty(),{
                             val index=entries.indexOfFirst {it.song.mid==entry.song.mid}
                             val window=entries.drop((index-10).coerceAtLeast(0)).take(100)
                             onPlayDiscovery(window.map {it.song.mid},entry.song.mid)
@@ -573,7 +564,7 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                             else -> GenreLookupPolicy.status(library.genres[song.mid])==GenreLookupStatus.UNAVAILABLE
                         }}
                     if(filtered.isEmpty()) item {Text(if(!connected)"连接 QQ 音乐，自动带回你的收藏。" else "暂无符合条件的歌曲。",color=Muted,modifier=Modifier.padding(vertical=24.dp))}
-                    items(filtered,key={it.mid}) {song ->TrackRow(song,library.genres[song.mid]?.labels.orEmpty(),{onPlay(song)},song.mid==player.mid,
+                    items(filtered,key={it.mid}) {song ->LegacyTrackRow(song,library.genres[song.mid]?.labels.orEmpty(),{onPlay(song)},song.mid==player.mid,
                         note=if(library.activeGenreMid==song.mid)"正在查询曲风…" else "",genre=library.genres[song.mid],onDetails={detailSong=song})}
                     item {SectionTitle("我的歌单","读取歌单",onPlaylists)}
                     items(library.playlists,key={it.id}) {list ->
@@ -624,7 +615,7 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                             color=Muted,fontSize=12.sp,lineHeight=20.sp,modifier=Modifier.padding(top=8.dp))
                     }
                     item {TextButton(onClick=onLegacy) {Text("旧版监听与记录",color=Muted,fontSize=12.sp)}}
-                    if(connected)item {TextButton(onClick=onLogout) {Text("退出 QQ 音乐账号",color=Color(0xFFCE9E91),fontSize=12.sp)}}
+                    if(connected)item {TextButton(onClick=onLogout) {Text("退出 QQ 音乐账号",color=ResonancePalette.signal,fontSize=12.sp)}}
                     item {Text("RESONANCE · 共鸣 ${BuildConfig.VERSION_NAME}",color=Muted.copy(alpha=.5f),fontSize=10.sp,letterSpacing=1.5.sp,modifier=Modifier.padding(vertical=18.dp))}
                 }
             }
@@ -776,7 +767,7 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                 }
             }
         }
-    } } }
+    } }
 }
 
 private fun androidx.compose.foundation.lazy.LazyListState.partVisible(key: String): Boolean {
@@ -869,7 +860,7 @@ private fun directionStateName(state:String)=when(state){"PLAYING"->"已确认�
     scores.forEach {row ->
         Row(Modifier.fillMaxWidth().padding(vertical=7.dp),verticalAlignment=Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {Text(genreName(row.label),fontSize=14.sp);Text("${row.observations} 次记录"+if(row.manual!=0.0)" · 主动 ${scoreText(row.manual)}" else "",fontSize=10.sp,color=Muted)}
-            Text("${scoreText(row.recent)} / ${scoreText(row.longTerm)} / ${scoreText(row.combined)}",fontSize=12.sp,color=if(row.combined<0)Color(0xFFCE9E91) else Accent)
+            Text("${scoreText(row.recent)} / ${scoreText(row.longTerm)} / ${scoreText(row.combined)}",fontSize=12.sp,color=if(row.combined<0)ResonancePalette.signal else Accent)
         }
     }
     TextButton(onClick={showCalculation=!showCalculation},contentPadding=PaddingValues(horizontal=0.dp)) {
@@ -892,7 +883,7 @@ private fun directionStateName(state:String)=when(state){"PLAYING"->"已确认�
                 Row(Modifier.clip(RoundedCornerShape(9.dp)).background(Raised).padding(horizontal=10.dp,vertical=7.dp),
                     horizontalArrangement=Arrangement.spacedBy(7.dp),verticalAlignment=Alignment.CenterVertically) {
                     Text(genreName(row.label),fontSize=12.sp,color=Muted)
-                    Text(scoreText(row.combined),fontSize=13.sp,fontWeight=FontWeight.SemiBold,color=if(row.combined<0)Color(0xFFFFB8B2) else Accent)
+                    Text(scoreText(row.combined),fontSize=13.sp,fontWeight=FontWeight.SemiBold,color=if(row.combined<0)ResonancePalette.signal else Accent)
                 }
             }
         }

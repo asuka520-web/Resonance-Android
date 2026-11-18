@@ -73,6 +73,13 @@ internal object Motion {
     const val PressScale = .97f
     const val PlayMorph = 180
     const val Navigation = 240
+    const val PageFade = 180
+    const val SecondaryPage = 240
+    const val SecondaryOffsetDp = 8
+    const val SharedArtwork = 320
+    const val NoticeEnter = 200
+    const val NoticeExit = 450
+    const val NoticeLifetime = 3600
     const val ProgressSample = 1000
     const val SeekThreshold = 500
     const val SlowFrameNanos = 14_000_000L
