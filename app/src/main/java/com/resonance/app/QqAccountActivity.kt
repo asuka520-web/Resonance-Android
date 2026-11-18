@@ -11,6 +11,9 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceResponse
+import android.graphics.Bitmap
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -100,6 +103,8 @@ class QqAccountActivity : ComponentActivity() {
             var showLogin by remember { mutableStateOf(false) }
             var webView by remember { mutableStateOf<WebView?>(null) }
             var loginHost by remember { mutableStateOf("y.qq.com") }
+            var loginLoading by remember { mutableStateOf(true) }
+            var loginError by remember { mutableStateOf(false) }
             DisposableEffect(Unit) {
                 val libraryListener: (LibraryState) -> Unit = { library = it }
                 val playerListener: (PlayerStatus) -> Unit = {
@@ -150,17 +155,12 @@ class QqAccountActivity : ComponentActivity() {
                     PlaybackStateBus.publish(PlaybackStateBus.value.copy(playbackRange=range.name))
                 },onClearScores=QqLibrary::clearScores,onSongFeedback=QqLibrary::songFeedback, liveClock=playbackClock)
             if (showLogin) ResonanceTheme {
-                ModalBottomSheet(onDismissRequest = { closeLogin() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                SheetScaffold(onDismissRequest = { closeLogin() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
                     modifier = Modifier.fillMaxHeight(.96f)) {
-                    Column(Modifier.fillMaxSize().navigationBarsPadding().padding(horizontal = 16.dp)) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("QQ 音乐账号", style = MaterialTheme.typography.titleLarge)
-                            TextButton(onClick = { closeLogin() }) { Text("完成") }
-                        }
-                        Text("官方页面 · $loginHost", fontSize = 11.sp, modifier = Modifier.padding(bottom = 8.dp))
-                        if (QqSessionManager.active?.playbackKey.isNullOrBlank()) {
-                            TextButton(onClick = { webView?.loadUrl("https://y.qq.com/n/ryqq/player") }) { Text("打开官方播放器页继续授权") }
-                        }
+                    Column(Modifier.fillMaxSize().navigationBarsPadding().padding(horizontal = Space.x4)) {
+                        AccountSheetHeader(loginHost, loginLoading, loginError, QqSessionManager.active?.playbackKey.isNullOrBlank(),
+                            onClose = { closeLogin() }, onAuthorize = { webView?.loadUrl("https://y.qq.com/n/ryqq/player") },
+                            onRetry = { loginError = false; loginLoading = true; webView?.reload() })
                         AndroidView(modifier = Modifier.fillMaxWidth().weight(1f), factory = { context ->
                             WebView(context).also { view ->
                                 webView = view
@@ -178,6 +178,16 @@ class QqAccountActivity : ComponentActivity() {
                                 CookieManager.getInstance().setAcceptThirdPartyCookies(view, true)
                                 view.webChromeClient = WebChromeClient()
                                 view.webViewClient = object : WebViewClient() {
+                                    override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                                        loginLoading = true
+                                        loginError = false
+                                    }
+                                    override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                                        if (request.isForMainFrame) { loginLoading = false; loginError = true }
+                                    }
+                                    override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
+                                        if (request.isForMainFrame) { loginLoading = false; loginError = true }
+                                    }
                                     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                                         if (QqAccountProtocol.allowedLoginUrl(request.url.toString())) return false
                                         if (request.hasGesture() && request.url.scheme in setOf("mqqapi", "mqqopensdkapi")) {
@@ -187,6 +197,7 @@ class QqAccountActivity : ComponentActivity() {
                                         return true
                                     }
                                     override fun onPageFinished(view: WebView, url: String) {
+                                        loginLoading = false
                                         loginHost = android.net.Uri.parse(url).host.orEmpty()
                                         CookieManager.getInstance().flush()
                                         QqSessionManager.refresh()
@@ -201,4 +212,20 @@ class QqAccountActivity : ComponentActivity() {
         }
     }
     override fun onResume() { super.onResume(); refreshAccount() }
+}
+
+@Composable
+internal fun AccountSheetHeader(host: String, loading: Boolean, failed: Boolean, needsAuthorization: Boolean,
+    onClose: () -> Unit, onAuthorize: () -> Unit, onRetry: () -> Unit) {
+    val ticker = remember { FrameTicker() }
+    val animate = LocalResonanceMotion.current
+    RunResonanceFrames(ticker, animate && loading && !failed, continuous = true, drawSand = true)
+    SectionHeader("QQ 音乐账号", onClose, "完成")
+    Text("官方页面 · $host", fontSize = TypeSize.caption, color = ResonancePalette.muted,
+        modifier = Modifier.padding(bottom = Space.x2))
+    if (needsAuthorization) TextAction("打开官方播放器页继续授权", onAuthorize, ResonancePalette.signal)
+    when {
+        failed -> ErrorState("官方页面暂时无法打开", "请检查网络后重试。", "重试", onRetry)
+        loading -> LoadingState("正在打开官方页面…", ticker, visible = true)
+    }
 }
