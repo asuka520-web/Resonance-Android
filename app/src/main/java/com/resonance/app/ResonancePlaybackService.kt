@@ -306,7 +306,15 @@ class ResonancePlaybackService : MediaSessionService() {
             }
         })
         val activity = PendingIntent.getActivity(this, 0, Intent(this, QqAccountActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        mediaSession = MediaSession.Builder(this, player).setSessionActivity(activity).setCallback(object : MediaSession.Callback {
+        val sessionPlayer = PreviousTrackPlayer(player, previousFromHistory = { current ->
+            QqLibrary.signals().asReversed().firstNotNullOfOrNull { event ->
+                if (event.mediaId == current) null else QqLibrary.track(event.mediaId.removePrefix("qq:"))
+            }?.let(CatalogueMediaItems::recommendationItem)
+        }, onTrackSwitch = {
+            previousRequested = true
+            nextTransition = TrackTransition.USER
+        })
+        mediaSession = MediaSession.Builder(this, sessionPlayer).setSessionActivity(activity).setCallback(object : MediaSession.Callback {
             override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
                 if (controller.uid != Process.myUid() && !controller.isTrusted) return MediaSession.ConnectionResult.reject()
                 return super.onConnect(session, controller)
@@ -349,9 +357,8 @@ class ResonancePlaybackService : MediaSessionService() {
             }
             @Suppress("DEPRECATION")
             override fun onPlayerCommandRequest(session: MediaSession, controller: MediaSession.ControllerInfo, playerCommand: Int): Int {
-                previousRequested=playerCommand in setOf(Player.COMMAND_SEEK_TO_PREVIOUS,Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
                 if (playerCommand in setOf(Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
-                        Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM, Player.COMMAND_SEEK_TO_MEDIA_ITEM))
+                        Player.COMMAND_SEEK_TO_MEDIA_ITEM))
                     nextTransition = TrackTransition.USER
                 return androidx.media3.session.SessionResult.RESULT_SUCCESS
             }

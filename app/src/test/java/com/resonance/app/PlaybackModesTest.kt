@@ -16,6 +16,42 @@ import org.robolectric.annotation.Config
 @Config(sdk=[35])
 @androidx.annotation.OptIn(UnstableApi::class)
 class PlaybackModesTest {
+    @Test fun systemPreviousSwitchesTracksEvenFarIntoTheSong() {
+        val delegate = ExoPlayer.Builder(ApplicationProvider.getApplicationContext<Context>()).build()
+        try {
+            delegate.setMediaItems(listOf(previousFixture("first"), previousFixture("second")), 1, 45_000)
+            var switches = 0
+            val player = PreviousTrackPlayer(delegate, { null }, { switches++ })
+            player.seekToPrevious()
+            assertEquals("first", player.currentMediaItem?.mediaId)
+            assertEquals(1, switches)
+
+            delegate.seekTo(23_000)
+            player.seekToPrevious()
+            assertEquals(23_000L, player.currentPosition)
+            assertEquals(1, switches)
+        } finally {
+            delegate.release()
+        }
+    }
+
+    @Test fun systemPreviousFallsBackToHistoryAtTheStartOfTheQueue() {
+        val delegate = ExoPlayer.Builder(ApplicationProvider.getApplicationContext<Context>()).build()
+        try {
+            delegate.setMediaItems(listOf(previousFixture("current")), 0, 45_000)
+            delegate.repeatMode = Player.REPEAT_MODE_ALL
+            val player = PreviousTrackPlayer(delegate, { previousFixture("history") }, {})
+            player.seekToPreviousMediaItem()
+            assertEquals("history", player.currentMediaItem?.mediaId)
+            assertEquals(2, player.mediaItemCount)
+        } finally {
+            delegate.release()
+        }
+    }
+
+    private fun previousFixture(id: String): MediaItem =
+        MediaItem.Builder().setMediaId(id).setUri("asset:///$id.mp3").build()
+
     @Test fun weightedOrderUpdateKeepsCurrentPositionAndPreviousWhileUsingEveryNativeQueueItem() {
         val context=ApplicationProvider.getApplicationContext<Context>();val player=ExoPlayer.Builder(context).build()
         val shuffle=PreferenceShuffle(kotlin.random.Random(45));val mids=(0..50).map {"song$it"}

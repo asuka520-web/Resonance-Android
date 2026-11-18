@@ -137,7 +137,7 @@ object QqLibrary {
                 preferences.getStringSet("excluded",emptySet()).orEmpty().toSet(),preferences.getBoolean("all",false)).normalized()
             update(LibraryState(accountScope = key, favorites = saved, discoveries = discoveryPool.tracks, genres = genres,
                 intent=intent,
-                scoreListening=if(key.isBlank())emptyList() else StyleRecommendations.signals(CatalogueStore.scoreEvents(context,key)),
+                scoreListening=if(key.isBlank())emptyList() else CatalogueStore.scoreSignals(context,key),
                 scoreEpoch=if(key.isBlank())0 else CatalogueStore.scoreEpoch(context,key),listeningTimeMs=ListeningTimeStore.totalMs(context),
                 manualScores=if(key.isBlank())emptyMap() else CatalogueStore.manualScores(context,key),
                 directionHistory=if(key.isBlank())emptyList() else CatalogueStore.directionHistory(context,key).map {
@@ -353,8 +353,18 @@ object QqLibrary {
     fun refreshListening() {
         val context = app ?: return
         update(value.copy(listening=StyleRecommendations.signals(CatalogueStore.events(context,value.accountScope)),
-            scoreListening=StyleRecommendations.signals(CatalogueStore.scoreEvents(context,value.accountScope))))
+            scoreListening=CatalogueStore.scoreSignals(context,value.accountScope)))
         refreshRecommendation()
+    }
+    fun clearTagScore(label: String) {
+        val context = app ?: return
+        val account = value.accountScope
+        if (account.isBlank() || value.genreScores().none { it.label == label }) return
+        CatalogueStore.clearTagScore(context, account, label)
+        update(value.copy(scoreListening = CatalogueStore.scoreSignals(context, account),
+            manualScores = CatalogueStore.manualScores(context, account)))
+        refreshRecommendation()
+        feedback("已清零「${genreName(label)}」的分数。")
     }
     fun songFeedback(mid:String,selected:Set<String>,more:Boolean) {
         val context=app?:return

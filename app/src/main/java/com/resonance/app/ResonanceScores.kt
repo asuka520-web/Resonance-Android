@@ -11,10 +11,11 @@ import kotlin.math.abs
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun TagScores(library: LibraryState, onClear: () -> Unit) {
+internal fun TagScores(library: LibraryState, onClear: () -> Unit, onClearTag: (String) -> Unit) {
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableIntStateOf(0) }
     var showCalculation by remember { mutableStateOf(false) }
+    var clearTag by remember(library.accountScope) { mutableStateOf<String?>(null) }
     val scores = remember(library.favorites, library.discoveries, library.genres, library.scoreSignals, library.manualScores) {
         library.genreScores().sortedByDescending { abs(it.combined) }
     }
@@ -46,7 +47,12 @@ internal fun TagScores(library: LibraryState, onClear: () -> Unit) {
             val info = "${row.observations} 次记录" + if (row.manual != 0.0) " · 主动 ${scoreDisplay(row.manual.toFloat())}" else ""
             val previousScores = listOf(row.recent, row.longTerm, row.combined)
                 .joinToString(" / ") { String.format(java.util.Locale.ROOT, "%+.1f", it) }
-            ScoreRow(genreName(row.label), scoreDisplay(value.value), bar, detail = info)
+            ScoreRow(genreName(row.label), scoreDisplay(value.value), bar, detail = info, trailing = {
+                if (row.observations > 0 || row.manual != 0.0) {
+                    TextAction("清零", { clearTag = row.label }, ResonancePalette.muted,
+                        description = "清除${genreName(row.label)}的分数")
+                }
+            })
             Text(previousScores, fontSize = TypeSize.caption, color = ResonancePalette.muted)
             HorizontalDivider(color = ResonancePalette.line)
         }
@@ -55,6 +61,16 @@ internal fun TagScores(library: LibraryState, onClear: () -> Unit) {
     if (showCalculation) Text("听完 +2，中途切歌 −1，有效快跳 −3。多标签平分反馈。综合分包含最近 20 条的 70%、最近 500 条归一到 20 条后的 30%，再加主动反馈。",
         fontSize = TypeSize.secondary, color = ResonancePalette.muted)
     TextAction("清除当前所有分数", onClear, ResonancePalette.muted)
+    clearTag?.let { label ->
+        ResonanceDialog("清零「${genreName(label)}」？", onDismiss = { clearTag = null }) {
+            Text("这个标签从新的听歌反馈重新计分。其他标签分数和听歌记录会保留。",
+                fontSize = TypeSize.body, color = ResonancePalette.muted)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                TextAction("取消", { clearTag = null }, ResonancePalette.muted)
+                PrimaryButton("确认清零", { clearTag = null; onClearTag(label) })
+            }
+        }
+    }
 }
 
 @Composable

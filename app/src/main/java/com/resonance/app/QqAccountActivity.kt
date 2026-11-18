@@ -69,17 +69,8 @@ class QqAccountActivity : ComponentActivity() {
         QqLibrary.prioritize(songs[index].mid)
     }
     private fun previous() {
-        val active=controller?:return
-        if(active.hasPreviousMediaItem()){active.seekToPreviousMediaItem();return}
-        val current=active.currentMediaItem?.mediaId.orEmpty()
-        val previous=QqLibrary.signals().asReversed().firstNotNullOfOrNull {event ->
-            if(event.mediaId==current)null else QqLibrary.track(event.mediaId.removePrefix("qq:"))}
-        if(previous==null){active.seekTo(0);QqLibrary.notice("已经是队列第一首，已回到开头。");return}
-        val existing=(0 until active.mediaItemCount).firstOrNull {active.getMediaItemAt(it).mediaId=="qq:${previous.mid}"}
-        if(existing!=null){active.seekTo(existing,0);return}
-        val item=if(active.currentMediaItem?.mediaMetadata?.extras?.getBoolean(CatalogueMediaItems.FIXED_QUEUE)==true)
-            CatalogueMediaItems.recommendationItem(previous) else CatalogueMediaItems.item(previous)
-        active.addMediaItem(0,item);active.seekTo(0,0)
+        val active = controller ?: return
+        if (active.isCommandAvailable(Player.COMMAND_SEEK_TO_PREVIOUS)) active.seekToPrevious()
     }
     private fun setPlaybackMode(name:String) {
         val mode=PlaybackMode.parse(name)

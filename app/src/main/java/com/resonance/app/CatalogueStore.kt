@@ -1,6 +1,7 @@
 package com.resonance.app
 
 import android.content.Context
+import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
@@ -121,6 +122,22 @@ object CatalogueStore {
         val prefs=library(context,scope)
         JSONArray(prefs.getString("scoreEvents",null)?:prefs.getString("playerEvents","[]"))
     }catch(_:Exception){JSONArray()}
+    private fun tagScoreStarts(prefs: SharedPreferences): Map<String, Int> {
+        val encoded = prefs.getString("tagScoreStarts", null) ?: return emptyMap()
+        return try {
+            val json = JSONObject(encoded)
+            buildMap {
+                for (label in json.keys()) {
+                    val start = json.optInt(label)
+                    if (start > 0) put(label, start)
+                }
+            }
+        } catch (_: org.json.JSONException) {
+            emptyMap()
+        }
+    }
+    internal fun scoreSignals(context: Context, scope: String): List<ListeningSignal> =
+        StyleRecommendations.signals(scoreEvents(context, scope), tagScoreStarts(library(context, scope)))
     fun scoreEpoch(context:Context,scope:String)=library(context,scope).getLong("scoreEpoch",0)
     fun manualScores(context:Context,scope:String):Map<String,Double> = try {
         val json=JSONObject(library(context,scope).getString("manualScores","{}")?:"{}")
@@ -135,9 +152,20 @@ object CatalogueStore {
     fun saveManualScores(context:Context,scope:String,scores:Map<String,Double>) {
         library(context,scope).edit().putString("manualScores",JSONObject(scores).toString()).apply()
     }
+    internal fun clearTagScore(context: Context, scope: String, label: String) {
+        val tag = CatalogueCodec.normalizeGenre(label)
+        if (tag.isBlank()) return
+        val prefs = library(context, scope)
+        val starts = tagScoreStarts(prefs) + (tag to scoreEvents(context, scope).length())
+        prefs.edit()
+            .putString("tagScoreStarts", JSONObject(starts).toString())
+            .putString("manualScores", JSONObject(manualScores(context, scope) - tag).toString())
+            .apply()
+    }
     fun clearScores(context:Context,scope:String):Long {
         val epoch=scoreEpoch(context,scope)+1
-        library(context,scope).edit().putString("scoreEvents","[]").putString("manualScores","{}").putLong("scoreEpoch",epoch).apply()
+        library(context,scope).edit().putString("scoreEvents","[]").putString("manualScores","{}")
+            .remove("tagScoreStarts").putLong("scoreEpoch",epoch).apply()
         return epoch
     }
     fun record(context: Context, scope: String, mid: String, playedMs: Long, durationMs: Long, category: String, reason: String) {
@@ -149,8 +177,20 @@ object CatalogueStore {
         val retained = JSONArray()
         for (i in maxOf(0, rows.length() - 500) until rows.length()) retained.put(rows.get(i))
         val retainedScores=JSONArray()
-        for(i in maxOf(0,scoring.length()-500) until scoring.length())retainedScores.put(scoring.get(i))
-        library(context, scope).edit().putString("playerEvents", retained.toString()).putString("scoreEvents",retainedScores.toString()).apply()
+        val dropped = (scoring.length() - 500).coerceAtLeast(0)
+        for (i in dropped until scoring.length()) retainedScores.put(scoring.get(i))
+        val prefs = library(context, scope)
+        val editor = prefs.edit().putString("playerEvents", retained.toString()).putString("scoreEvents", retainedScores.toString())
+        if (dropped > 0) {
+            // Store cutoffs relative to the retained score rows so clock changes cannot revive old scores.
+            val starts = tagScoreStarts(prefs)
+            if (starts.isNotEmpty()) {
+                val shifted = starts.mapValues { (_, start) -> start - dropped }.filterValues { it > 0 }
+                if (shifted.isEmpty()) editor.remove("tagScoreStarts")
+                else editor.putString("tagScoreStarts", JSONObject(shifted).toString())
+            }
+        }
+        editor.apply()
     }
     fun artwork(song: QqCatalogueTrack): String? = song.albumMid.takeIf { it.matches(Regex("[A-Za-z0-9]{1,80}")) }
         ?.let { "https://y.qq.com/music/photo_new/T002R300x300M000$it.jpg" }

@@ -337,6 +337,27 @@ class ResonanceScreenTest {
         compose.onNodeWithText("+0.0").assertIsDisplayed()
     }
 
+    @Test fun clearingOneTagConfirmsOnlyThatLabel() {
+        val song = QqCatalogueTrack("score", "score", "多标签歌曲", "歌手", "专辑", 200000)
+        val library = LibraryState(accountScope = "test", favorites = listOf(song),
+            genres = mapOf(song.mid to CatalogueGenre(song.mid, setOf("pop", "jazz"), "qq-song-detail", "", 0, 999)),
+            listening = listOf(ListeningSignal("qq:score", "completed")))
+        val cleared = mutableListOf<String>()
+        setContent {
+            ResonanceScreen(library, PlayerStatus(), {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
+                onClearTagScore = { cleared.add(it) })
+        }
+        compose.onNodeWithText("调整这次选歌").performScrollTo().performClick()
+        compose.onNode(hasText("标签分数") and hasClickAction()).performClick()
+        compose.onNodeWithContentDescription("清除流行的分数").performScrollTo().performClick()
+        compose.onNodeWithText("取消").performClick()
+        assertTrue(cleared.isEmpty())
+
+        compose.onNodeWithContentDescription("清除流行的分数").performClick()
+        compose.onNodeWithText("确认清零").performClick()
+        assertEquals(listOf("pop"), cleared)
+    }
+
     @Test
     @Config(qualifiers = "zh-rCN-w360dp-h820dp-xhdpi")
     fun redesignFitsAt360Dp() = assertHomeLayout("home-redesign-360")

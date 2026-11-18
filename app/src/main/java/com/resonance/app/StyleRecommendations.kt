@@ -7,7 +7,7 @@ data class StyleTrack(
     val mediaId: String, val name: String, val artist: String,
     val recordingId: String, val genres: Set<String>
 )
-data class ListeningSignal(val mediaId: String, val category: String)
+data class ListeningSignal(val mediaId: String, val category: String, val ignoredScoreLabels: Set<String> = emptySet())
 data class StylePick(val track: StyleTrack, val reason: String, val unfamiliar: Boolean, val surprise:Boolean=false)
 data class StylePlan(
     val heading: String, val explanation: String, val picks: List<StylePick> = emptyList(),
@@ -17,12 +17,14 @@ data class StylePlan(
 
 /** Genre overlap is an explainable first stage, not acoustic or mood similarity. */
 object StyleRecommendations {
-    fun signals(json: JSONArray): List<ListeningSignal> = (0 until json.length()).mapNotNull {
+    fun signals(json: JSONArray, tagScoreStarts: Map<String, Int> = emptyMap()): List<ListeningSignal> = (0 until json.length()).mapNotNull {
         val event = json.optJSONObject(it) ?: return@mapNotNull null
         val id = event.optString("mediaId")
         val category = event.optString("category")
         if (id.isBlank() || category !in setOf("fast", "partial", "completed")) null
-        else ListeningSignal(id, category)
+        else ListeningSignal(id, category, if (tagScoreStarts.isEmpty()) emptySet() else buildSet {
+            for ((label, start) in tagScoreStarts) if (it < start) add(label)
+        })
     }
 
     fun similar(anchorId: String, tracks: List<StyleTrack>, events: List<ListeningSignal>,

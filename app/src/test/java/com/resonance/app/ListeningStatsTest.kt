@@ -14,6 +14,45 @@ import org.robolectric.annotation.Config
 @Config(sdk=[35])
 class ListeningStatsTest {
     private val context get()=ApplicationProvider.getApplicationContext<Context>()
+    @Test fun resettingOneTagPreservesOtherSharesOfTheSameEvents() {
+        val scope = "one-tag-reset"
+        val prefs = context.getSharedPreferences("qq_library_$scope", 0)
+        val legacy = JSONArray().put(JSONObject().put("mediaId", "qq:multi").put("category", "completed"))
+        prefs.edit().clear().putString("playerEvents", legacy.toString()).commit()
+        CatalogueStore.saveManualScores(context, scope, mapOf("pop" to -2.0, "jazz" to 4.0))
+        val tracks = listOf(StyleTrack("qq:multi", "multi", "artist", "multi", setOf("pop", "jazz")))
+        fun scores() = GenrePreferenceScores.calculate(tracks, CatalogueStore.scoreSignals(context, scope),
+            CatalogueStore.manualScores(context, scope)).associateBy { it.label }
+        val jazz = scores().getValue("jazz")
+
+        CatalogueStore.clearTagScore(context, scope, "流行")
+        assertEquals(jazz, scores().getValue("jazz"))
+        assertEquals(GenreScore("pop", 0.0, 0.0, 0.0, 0), scores().getValue("pop"))
+        assertEquals(listOf(ListeningSignal("qq:multi", "completed")), StyleRecommendations.signals(CatalogueStore.events(context, scope)))
+        assertEquals(0L, CatalogueStore.scoreEpoch(context, scope))
+
+        CatalogueStore.record(context, scope, "multi", 120_000, 120_000, "completed", "natural")
+        assertEquals(1.0, scores().getValue("pop").combined, .001)
+        assertEquals(1, scores().getValue("pop").observations)
+    }
+
+    @Test fun tagResetCutoffFollowsRowsWhenTheScoreHistoryRollsOver() {
+        val scope = "tag-reset-rollover"
+        val prefs = context.getSharedPreferences("qq_library_$scope", 0)
+        val oldRows = JSONArray()
+        repeat(500) { oldRows.put(JSONObject().put("mediaId", "qq:multi").put("category", "completed")) }
+        prefs.edit().clear().putString("scoreEvents", oldRows.toString()).commit()
+        CatalogueStore.clearTagScore(context, scope, "pop")
+        CatalogueStore.record(context, scope, "multi", 120_000, 120_000, "completed", "natural")
+        val retained = CatalogueStore.scoreSignals(context, scope)
+        assertEquals(500, retained.size)
+        assertTrue(retained.dropLast(1).all { "pop" in it.ignoredScoreLabels })
+        assertTrue(retained.last().ignoredScoreLabels.isEmpty())
+
+        CatalogueStore.clearScores(context, scope)
+        CatalogueStore.record(context, scope, "multi", 120_000, 120_000, "completed", "natural")
+        assertEquals(listOf(ListeningSignal("qq:multi", "completed")), CatalogueStore.scoreSignals(context, scope))
+    }
     @Test fun scoreResetIsPersistentAndAccountScopedWithoutErasingHistoryOrDuration() {
         val scope="reset-test"
         context.getSharedPreferences("qq_library_$scope",0).edit().clear().commit()

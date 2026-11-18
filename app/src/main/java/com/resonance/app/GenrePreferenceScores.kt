@@ -8,15 +8,22 @@ object GenrePreferenceScores {
     fun calculate(tracks:List<StyleTrack>,events:List<ListeningSignal>,manualScores:Map<String,Double> = emptyMap()):List<GenreScore> {
         val byId=tracks.associateBy {it.mediaId}
         fun points(event:ListeningSignal)=when(event.category){"completed"->2.0;"fast"->-3.0;"partial"->-1.0;else->0.0}
-        fun sums(rows:List<ListeningSignal>):Map<String,Double> {
+        fun sums(rows:List<ListeningSignal>, observations: MutableMap<String, Int>? = null):Map<String,Double> {
             val result=mutableMapOf<String,Double>()
             rows.forEach {event -> val labels=byId[event.mediaId]?.genres.orEmpty()
-                labels.forEach {tag -> result[tag]=(result[tag]?:0.0)+points(event)/labels.size.coerceAtLeast(1)}}
+                for (tag in labels) {
+                    if (tag in event.ignoredScoreLabels) continue
+                    result[tag] = (result[tag] ?: 0.0) + points(event) / labels.size
+                    if (observations != null) observations[tag] = (observations[tag] ?: 0) + 1
+                }
+            }
             return result
         }
-        val recent=sums(events.takeLast(20));val historical=events.takeLast(500);val long=sums(historical)
+        val recent = sums(events.takeLast(20))
+        val historical = events.takeLast(500)
+        val observations = mutableMapOf<String, Int>()
+        val long = sums(historical, observations)
         val scale=20.0/maxOf(20,historical.size)
-        val observations=historical.flatMap {byId[it.mediaId]?.genres.orEmpty()}.groupingBy {it}.eachCount()
         return tracks.flatMap {it.genres}.distinct().map {tag ->
             val short=recent[tag]?:0.0;val full=long[tag]?:0.0
             val manual=manualScores[tag]?.takeIf {it.isFinite()}?.coerceIn(-6.0,6.0)?:0.0

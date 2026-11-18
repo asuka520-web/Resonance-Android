@@ -229,7 +229,7 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
     onPlaybackMode:(String)->Unit={},onIntent:(ListeningIntent)->Unit={QqLibrary.setIntent(it)},
     onFavorite:(String)->Unit={},onRefreshFavorite:(String)->Unit={},onEnrich:(String?)->Unit={},onPlaybackRange:(String)->Unit={},onClearScores:()->Unit={},
     onSongFeedback:(String,Set<String>,Boolean)->Unit={_,_,_->}, liveClock:State<PlaybackClock>?=null,
-    onRefreshRecommendation:(String)->Unit={QqLibrary.similar(it)}) {
+    onRefreshRecommendation:(String)->Unit={QqLibrary.similar(it)}, onClearTagScore:(String)->Unit=QqLibrary::clearTagScore) {
     val clock=liveClock ?: rememberUpdatedState(player.clock())
     val context=LocalContext.current
     val settings=remember {context.getSharedPreferences("resonance_settings",0)}
@@ -765,7 +765,7 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                     })
                 }) { scoresPage ->
                     Column(verticalArrangement = Arrangement.spacedBy(Space.x3)) {
-                        if (scoresPage) TagScores(library) { showScoreReset = true }
+                        if (scoresPage) TagScores(library, onClear = { showScoreReset = true }, onClearTag = onClearTagScore)
                         else IntentEditor(library.genres, draftIntent, { draftIntent = it },
                             { onIntent(draftIntent); showIntent = false },
                             { onIntent(ListeningIntent()); showIntent = false })
