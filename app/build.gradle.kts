@@ -7,6 +7,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 val previewBuild = providers.gradleProperty("resonancePreview").map { it.toBoolean() }.getOrElse(false)
+val uiTryBuild = providers.gradleProperty("resonanceUiTry").map { it.toBoolean() }.getOrElse(false)
+check(!previewBuild || !uiTryBuild) { "Choose either the preview or the ui-try installation." }
 val cloudDebugKeystore = providers.environmentVariable("RESONANCE_DEBUG_KEYSTORE").orNull
 val sharedSigningFile = cloudDebugKeystore?.let { file(it) }
     ?: rootProject.file(".ci-signing/debug.keystore")
@@ -19,13 +21,22 @@ android {
     namespace = "com.resonance.app"
     compileSdk = 35
     defaultConfig {
-        applicationId = if (previewBuild) "com.resonance.app.preview" else "com.resonance.app"
-        manifestPlaceholders["appLabel"] = if (previewBuild) "Resonance 预览版" else "Resonance"
-        manifestPlaceholders["listenerLabel"] = if (previewBuild) "Resonance 预览版媒体监听" else "Resonance 媒体监听"
+        applicationId = when {
+            uiTryBuild -> "com.resonance.app.uitry"
+            previewBuild -> "com.resonance.app.preview"
+            else -> "com.resonance.app"
+        }
+        val appLabel = when {
+            uiTryBuild -> "Resonance ui-try"
+            previewBuild -> "Resonance 预览版"
+            else -> "Resonance"
+        }
+        manifestPlaceholders["appLabel"] = appLabel
+        manifestPlaceholders["listenerLabel"] = "$appLabel 媒体监听"
         minSdk = 26
         targetSdk = 35
         versionCode = 25
-        versionName = "0.15.8"
+        versionName = if (uiTryBuild) "0.15.8-ui-try.1" else "0.15.8"
     }
     buildTypes {
         release {

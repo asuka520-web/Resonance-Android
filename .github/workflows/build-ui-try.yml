@@ -1,0 +1,71 @@
+name: Build Resonance ui-try
+on:
+  push:
+    branches: [ui-try]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: resonance-ui-try-apk
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/ui-try'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      RESONANCE_DEBUG_KEYSTORE: ${{ runner.temp }}/resonance-ui-try.keystore
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Install Android SDK 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Restore fixed Android signing identity
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RESONANCE_ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$KEYSTORE_BASE64"
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RESONANCE_DEBUG_KEYSTORE"
+      - name: Test, lint and assemble ui-try
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon -PresonanceUiTry=true :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+          apk="app/build/outputs/apk/debug/app-debug.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.resonance.app.uitry'"
+          cp "$apk" Resonance-ui-try.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Resonance-ui-try-reports
+          path: |
+            app/build/test-results/testDebugUnitTest
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/ui-review/*.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Resonance-ui-try
+          path: Resonance-ui-try.apk
+          if-no-files-found: error
+      - name: Publish ui-try APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view ui-try >/dev/null 2>&1; then
+            gh release create ui-try --target "$GITHUB_SHA" --title "Resonance ui-try" --prerelease --latest=false \
+              --notes "独立安装的界面试用包。安装包名 com.resonance.app.uitry，账号和本机记录独立。" Resonance-ui-try.apk
+          else
+            gh release upload ui-try Resonance-ui-try.apk --clobber
+          fi
+      - name: Remove temporary signing material
+        if: always()
+        run: rm -f -- "$RESONANCE_DEBUG_KEYSTORE"
