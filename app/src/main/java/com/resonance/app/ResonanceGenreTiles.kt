@@ -172,11 +172,13 @@ internal fun genreTitleLines(label: String, width: Int, measure: (String) -> Int
 }
 
 @Composable
-internal fun GenreTile(tile: GenreTileData, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun GenreTile(tile: GenreTileData, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier,
+    square: Boolean = true) {
     val label = genreName(tile.label)
     val interaction = remember { MutableInteractionSource() }
     val selectedBorder = if (selected) Modifier.border(Space.focus, ResonancePalette.signal, Corners.card) else Modifier
-    Box(modifier.aspectRatio(1f).clip(Corners.card).background(ResonancePalette.plate).then(selectedBorder)
+    val dimensions = if (square) Modifier.aspectRatio(1f) else Modifier
+    Box(modifier.then(dimensions).clip(Corners.card).background(ResonancePalette.plate).then(selectedBorder)
         .selectable(selected, interaction, LocalIndication.current, role = Role.Button, onClick = onClick)
         .resonancePress(interaction)) {
         if (tile.count == 0) {
@@ -216,6 +218,23 @@ internal fun GenreTile(tile: GenreTileData, selected: Boolean, onClick: () -> Un
             }
             Text(title, Modifier.semantics { contentDescription = label }, color = ResonancePalette.sand, style = style,
                 maxLines = 2, softWrap = false, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+internal fun FeaturedGenres(tiles: List<GenreTileData>, selected: String?, onSelect: (String) -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val width = (maxWidth - Space.tileGap) * .57f
+        Row(Modifier.fillMaxWidth().height(width), horizontalArrangement = Arrangement.spacedBy(Space.tileGap)) {
+            val lead = tiles.first()
+            GenreTile(lead, selected == lead.label, { onSelect(lead.label) }, Modifier.width(width).fillMaxHeight())
+            Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(Space.tileGap)) {
+                tiles.drop(1).forEach { tile ->
+                    GenreTile(tile, selected == tile.label, { onSelect(tile.label) },
+                        Modifier.fillMaxWidth().weight(1f), square = false)
+                }
+            }
         }
     }
 }

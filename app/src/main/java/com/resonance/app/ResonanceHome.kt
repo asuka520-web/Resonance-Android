@@ -1,92 +1,77 @@
 package com.resonance.app
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.Easing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.LocalIndication
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.State
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.Font
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.TextUnit
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.em
-import androidx.compose.ui.unit.sp
-import java.util.Locale
 import kotlin.math.abs
-import kotlin.math.roundToInt
 
 internal data class PlaybackClock(val mid: String, val positionMs: Long, val listeningMinutes: Long)
 internal fun PlayerStatus.clock() = PlaybackClock(mid, positionMs, listeningTimeMs / 60_000)
 internal fun PlayerStatus.withoutClock() = copy(positionMs = 0, listeningTimeMs = 0)
 
 @Composable
-internal fun HomePlate(song: QqCatalogueTrack?, cover: ArtworkLoad, renderer: HomeSandRenderer, ticker: FrameTicker,
-    visible: Boolean, cold: Boolean, systemMotion: Boolean,
-    match: Float = Motion.DefaultMatch, onFirstPattern: () -> Unit) {
-    Box(Modifier.fillMaxWidth().aspectRatio(350f / 224f), contentAlignment = Alignment.Center) {
-        SandPlate(ResonanceEngine.trackSeed.ifBlank { song?.mid.orEmpty() }, Modifier.matchParentSize(), animated = true, animation =
-            SandAnimation(renderer, ticker, visible, playing = false, match, cold, systemMotion, onFirstPattern,
-                sigmaDp = Motion.HomeSigmaDp))
-        val shape = Corners.card
-        ArtworkTransition(cover, Modifier.size(Space.heroCover), shape, dropShadow = true, visible = visible)
+internal fun HomePlate(
+    song: QqCatalogueTrack?, cover: ArtworkLoad, renderer: HomeSandRenderer, ticker: FrameTicker,
+    visible: Boolean, cold: Boolean, systemMotion: Boolean, playing: Boolean, current: Boolean,
+    onPlayPause: () -> Unit, onExpand: () -> Unit, onFirstPattern: () -> Unit
+) {
+    val shape = Corners.plate
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val height = (maxWidth * .65f).coerceIn(Space.heroMinHeight, Space.heroMaxHeight)
+        Box(Modifier.fillMaxWidth().height(height).clip(shape)
+            .background(ResonancePalette.plate).border(Space.thin, ResonancePalette.line, shape)) {
+            ArtworkTransition(cover, Modifier.matchParentSize(), shape, visible = visible)
+            SandPlate(song?.mid.orEmpty(), Modifier.matchParentSize(), opacity = if (cover.image == null) .9f else .58f,
+                animated = true, background = Color.Transparent, animation = SandAnimation(renderer, ticker, visible,
+                    playing = playing, cold = cold, systemMotion = systemMotion, onFirstPattern = onFirstPattern,
+                    priority = 2, sigmaDp = Motion.HomeSigmaDp))
+            if (song != null) {
+                Box(Modifier.matchParentSize().background(Brush.verticalGradient(
+                    0f to ResonancePalette.ink.copy(alpha = .68f),
+                    .38f to Color.Transparent,
+                    1f to ResonancePalette.ink.copy(alpha = .94f)
+                )))
+                if (current) {
+                    Row(Modifier.align(Alignment.TopStart).padding(start = Space.x4, top = Space.x3)
+                        .clip(Corners.tag).background(ResonancePalette.ink.copy(alpha = .88f))
+                        .padding(horizontal = Space.x2, vertical = Space.x1),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.x1)) {
+                        Box(Modifier.size(Space.statusDot).background(ResonancePalette.signal, CircleShape))
+                        ResonanceText(if (playing) "正在播放" else "已暂停", TypeSize.caption, color = ResonancePalette.artTitle)
+                    }
+                    Box(Modifier.align(Alignment.TopEnd).padding(top = Space.x1, end = Space.x2)) {
+                        IconAction("展开完整播放器", onExpand, ResonancePalette.ink.copy(alpha = .88f), filled = true) {
+                            Glyph(ResonanceGlyph.EXPAND, Modifier.size(Space.x5), ResonancePalette.artTitle)
+                        }
+                    }
+                }
+                Row(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(Space.x4),
+                    horizontalArrangement = Arrangement.spacedBy(Space.x2), verticalAlignment = Alignment.Bottom) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.x1)) {
+                        Text(song.name, style = resonanceTextStyle(TypeSize.song, FontWeight.ExtraBold, english = true),
+                            color = ResonancePalette.artTitle, lineHeight = TypeSize.songLine, maxLines = 2,
+                            overflow = TextOverflow.Ellipsis)
+                        ResonanceText(song.artist, TypeSize.body, color = ResonancePalette.artTitle, english = true)
+                    }
+                    IconAction(if (current && playing) "暂停当前歌曲" else "播放当前歌曲",
+                        onPlayPause, ResonancePalette.sand, filled = true) {
+                        PlayPauseMorph(current && playing, Modifier.size(Space.x6))
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -95,23 +80,20 @@ internal fun HomeHero(
     connected: Boolean, song: QqCatalogueTrack?,
     onLogin: () -> Unit, onSimilar: () -> Unit, onSurprise: () -> Unit, onIntent: () -> Unit
 ) {
-    Column(Modifier.fillMaxWidth().padding(top = Space.x1), verticalArrangement = Arrangement.spacedBy(Space.x3)) {
-        if (connected && song != null) {
-            Column(verticalArrangement = Arrangement.spacedBy(Space.x1)) {
-                Text(song.name, style = resonanceTextStyle(TypeSize.song, FontWeight.ExtraBold, english = true),
-                    color = ResonancePalette.sand, lineHeight = TypeSize.songLine, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                ResonanceText(song.artist, TypeSize.body, color = ResonancePalette.muted, english = true)
-            }
-        } else {
-            ResonanceText(if (connected) "收藏同步后可听相似推荐" else "从你的收藏开始", TypeSize.lead, lines = 2, weight = FontWeight.Bold)
+    Column(Modifier.fillMaxWidth().padding(top = Space.x1), verticalArrangement = Arrangement.spacedBy(Space.x2)) {
+        if (song == null) {
+            ResonanceText(if (connected) "收藏同步后可听相似推荐" else "从你的收藏开始", TypeSize.lead,
+                lines = 2, weight = FontWeight.Bold)
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
             if (!connected) PrimaryButton("连接我的 QQ 音乐", onLogin, Modifier.weight(1f))
             else {
-                if (song != null) PrimaryButton("相似推荐", onSimilar, Modifier.weight(1f))
-                OutlineButton("随心听", onSurprise, if (song == null) Modifier.weight(1f) else Modifier)
-                OutlineButton("调整这次选歌", onIntent)
+                if (song != null) OutlineButton("相似推荐", onSimilar, Modifier.weight(1f))
+                OutlineButton("随心听", onSurprise, Modifier.weight(1f))
             }
+        }
+        if (connected) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            TextAction("调整这次选歌", onIntent, ResonancePalette.muted)
         }
     }
 }

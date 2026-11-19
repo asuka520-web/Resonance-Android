@@ -118,7 +118,7 @@ internal fun SandPlate(trackId: String, modifier: Modifier = Modifier,
     val max = if (animation == null) SmallGrains else FullGrains
     val requested = grainCount?.coerceIn(0, max) ?: (max * density.coerceIn(0f, 1f)).toInt()
     WithSandBudget(modifier, requested, animation?.priority ?: 0) { placed, granted ->
-        if (animation != null) AnimatedSandPlate(trackId, animation, animated, granted, placed)
+        if (animation != null) AnimatedSandPlate(trackId, animation, animated, granted, placed, background, opacity)
         else CompactSandPlate(trackId, placed, ticker, fadeStartedAt, opacity, background, granted)
     }
 }
@@ -293,7 +293,8 @@ internal class HomeSandRenderer {
 }
 
 @Composable
-private fun AnimatedSandPlate(trackId: String, animation: SandAnimation, live: Boolean, granted: () -> Int, modifier: Modifier) {
+private fun AnimatedSandPlate(trackId: String, animation: SandAnimation, live: Boolean, granted: () -> Int,
+    modifier: Modifier, background: Color, opacity: Float) {
     val renderer = animation.renderer
     val ticker = animation.ticker
     val visible = animation.visible
@@ -329,8 +330,9 @@ private fun AnimatedSandPlate(trackId: String, animation: SandAnimation, live: B
         snapshotFlow { ticker.age(gatherStarted, sand = true) >= Motion.TrackChange }.first { it }
         if (renderer.finishGather(trackId, gatherStarted)) view.resonanceHaptic(confirmation = true)
     }
-    Canvas(modifier.clip(Corners.plate).background(ResonancePalette.plate).drawWithCache {
-        val paints = arrayOf(sandPaint(Space.mainGrain.toPx(), 255), sandPaint(Space.largeGrain.toPx(), 255), sandPaint(Space.looseGrain.toPx(), 89))
+    Canvas(modifier.clip(Corners.plate).background(background).drawWithCache {
+        val paints = arrayOf(sandPaint(Space.mainGrain.toPx(), (255 * opacity).toInt()),
+            sandPaint(Space.largeGrain.toPx(), (255 * opacity).toInt()), sandPaint(Space.looseGrain.toPx(), (89 * opacity).toInt()))
         val scale = density
         onDrawBehind {
             val limit = granted()

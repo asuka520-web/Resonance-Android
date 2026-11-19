@@ -35,17 +35,19 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 
-internal const val ResonanceBackgroundArgb = 0xFF070B24
+internal const val ResonanceBackgroundArgb = 0xFF121820
 
 internal object ResonancePalette {
     val ink = Color(ResonanceBackgroundArgb)
-    val surface = Color(0xFF0F1642)
-    val raised = Color(0xFF172154)
-    val line = Color(0xFF1E2866)
-    val plate = Color(0xFF1A33D6)
-    val sand = Color(0xFFF2EBDD)
-    val signal = Color(0xFFFF6B3D)
-    val muted = Color(0xFF8F9BD0)
+    val surface = Color(0xFF1B242D)
+    val raised = Color(0xFF28343F)
+    val line = Color(0xFF34424F)
+    val plate = Color(0xFF19232D)
+    val sand = Color(0xFFEDF2F5)
+    val signal = Color(0xFFACC9E4)
+    val muted = Color(0xFFA9B6C3)
+    val warm = Color(0xFFE4A18B)
+    val artTitle = Color(0xFFFAFCFE)
 }
 
 internal object Space {
@@ -59,11 +61,14 @@ internal object Space {
     val touch = 48.dp
     val listCover = 56.dp
     val dockCover = 42.dp
-    val heroCover = 96.dp
+    val heroMinHeight = 174.dp
+    val heroMaxHeight = 235.dp
+    val playerCoverMax = 252.dp
     val weekTileWidth = 44.dp
     val catalogueDot = 3.dp
     val catalogueDotPitch = 6.dp
     val profileScoreWidth = 140.dp
+    val profileScoreHeight = 96.dp
     val tileGap = 10.dp
     val thin = 1.dp
     val focus = 1.5.dp

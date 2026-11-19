@@ -32,6 +32,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
@@ -82,35 +83,42 @@ internal fun NowPlaying(
                             if (panelOffset >= dragLimit || velocity >= dragLimit * 8) onClose()
                             panelOffset = 0f
                         }), contentAlignment = Alignment.Center) {
-                    Box(Modifier.size(Space.x8, Space.x1).background(ResonancePalette.muted, CircleShape))
+                    Box(Modifier.align(Alignment.CenterStart).padding(start = Space.x3)) {
+                        IconAction("收起播放器", onClose, ResonancePalette.sand) {
+                            Glyph(ResonanceGlyph.DOWN, Modifier.size(Space.x5))
+                        }
+                    }
+                    ResonanceText("正在播放", TypeSize.secondary, color = ResonancePalette.muted)
                 }
                 Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll).padding(horizontal = Space.x5),
                     verticalArrangement = Arrangement.spacedBy(Space.x3)) {
-                    Box(Modifier.fillMaxWidth().aspectRatio(1f)
+                    BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(1.12f)
                         .onGloballyPositioned { boardVisible = !it.boundsInWindow().isEmpty }, contentAlignment = Alignment.Center) {
                         SandPlate(song.mid, Modifier.matchParentSize().then(plateTransition), animated = true,
                             animation = SandAnimation(renderer, ticker, boardActive, player.playing, cold = firstPattern,
                                 onFirstPattern = { firstPattern = false }, priority = 3))
-                        ArtworkTransition(cover, Modifier.size(Space.heroCover).then(coverTransition), Corners.card,
+                        ArtworkTransition(cover, Modifier.size((maxWidth * .68f).coerceAtMost(Space.playerCoverMax))
+                            .then(coverTransition), Corners.card,
                             dropShadow = true, visible = boardVisible)
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
-                        Column(Modifier.weight(1f)) {
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = Space.touch),
+                            horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(song.name, color = ResonancePalette.sand, style = resonanceTextStyle(TypeSize.song, FontWeight.ExtraBold, true),
-                                maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(song.artist, color = ResonancePalette.muted, fontSize = TypeSize.body)
+                                maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+                            ResonanceText(song.artist, TypeSize.body, color = ResonancePalette.muted, english = true)
                         }
-                        favorite()
+                        Box(Modifier.align(Alignment.CenterEnd)) { favorite() }
                     }
                     TuningRuler(song.mid, player.durationMs, clock, onSeek)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                        IconAction("上一首", onPrevious, ResonancePalette.sand, outline = true) {
+                        IconAction("上一首", onPrevious, ResonancePalette.sand) {
                             Glyph(ResonanceGlyph.PREVIOUS, Modifier.size(Space.x6))
                         }
-                        IconAction("播放或暂停", onPlayPause, ResonancePalette.signal, filled = true, diameter = Space.x6 * 3) {
+                        IconAction("播放或暂停", onPlayPause, ResonancePalette.sand, filled = true, diameter = Space.miniHeight) {
                             PlayPauseMorph(player.playing || (player.loading && player.playRequested), Modifier.size(Space.x8))
                         }
-                        IconAction("下一首", onNext, ResonancePalette.sand, outline = true) {
+                        IconAction("下一首", onNext, ResonancePalette.sand) {
                             Glyph(ResonanceGlyph.NEXT, Modifier.size(Space.x6))
                         }
                     }

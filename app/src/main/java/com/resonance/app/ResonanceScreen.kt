@@ -98,7 +98,7 @@ private val Accent = ResonancePalette.signal
 private val Cream = ResonancePalette.sand
 private val SoftLine = ResonancePalette.line
 
-enum class ResonanceGlyph { PLAY, PAUSE, NEXT, PREVIOUS, HOME, LIBRARY, PERSON, SEARCH, HEART, BACK, CLOSE, REFRESH, WAVE, DETAILS }
+enum class ResonanceGlyph { PLAY, PAUSE, NEXT, PREVIOUS, HOME, LIBRARY, PERSON, SEARCH, HEART, BACK, CLOSE, REFRESH, WAVE, DETAILS, EXPAND, DOWN }
 
 @Composable
 fun Glyph(type: ResonanceGlyph, modifier: Modifier = Modifier.size(Space.x6), color: Color = Cream) {
@@ -120,6 +120,11 @@ fun Glyph(type: ResonanceGlyph, modifier: Modifier = Modifier.size(Space.x6), co
             ResonanceGlyph.REFRESH -> { drawArc(color,35f,285f,false,Offset(w*.2f,h*.2f),Size(w*.6f,h*.6f),style=Stroke(w*.07f,cap=StrokeCap.Round));line(.82f,.2f,.82f,.43f);line(.82f,.43f,.61f,.42f) }
             ResonanceGlyph.WAVE -> { listOf(.25f to .2f,.42f to .05f,.59f to .32f,.76f to .16f).forEach { (x,y) -> line(x,.5f-y,x,.5f+y) } }
             ResonanceGlyph.DETAILS -> {for(y in listOf(.25f,.5f,.75f))drawCircle(color,w*.065f,Offset(w*.5f,h*y))}
+            ResonanceGlyph.EXPAND -> {
+                line(.56f,.2f,.8f,.2f); line(.8f,.2f,.8f,.44f); line(.8f,.2f,.53f,.47f)
+                line(.44f,.8f,.2f,.8f); line(.2f,.8f,.2f,.56f); line(.2f,.8f,.47f,.53f)
+            }
+            ResonanceGlyph.DOWN -> { line(.25f,.38f,.5f,.63f); line(.5f,.63f,.75f,.38f) }
         }
     }
 }
@@ -393,8 +398,10 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                 if(page==0) {
                     val refreshSimilar: () -> Unit = { seed?.let { QqLibrary.similar(it.mid) } }
                     item(key = "resonance-plate") {
-                        HomePlate(seed, seedCover, renderer, ticker, animatePlate,
-                            coldPlate, motionEnvironment.systemEnabled) { coldPlate = false }
+                        HomePlate(seed, seedCover, renderer, ticker, animatePlate, coldPlate,
+                            motionEnvironment.systemEnabled, player.playing, current != null,
+                            onPlayPause = { if (current != null) onToggle() else seed?.let(onPlay) },
+                            onExpand = { expandedPlayer = true }, onFirstPattern = { coldPlate = false })
                     }
                     item {
                         HomeHero(connected, seed, onLogin, refreshSimilar, onSurprise) {
@@ -407,10 +414,6 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                     if(connected && library.intent.active) item {
                         Text("想听：${library.intent.wanted.sorted().joinToString {genreName(it)}.ifBlank {"不限"}}\n避开：${library.intent.excluded.sorted().joinToString {genreName(it)}.ifBlank {"不限"}}",
                             color=ResonancePalette.muted,fontSize=TypeSize.caption,lineHeight=TypeSize.mediumLine)
-                    }
-                    if(connected) item {
-                        HomeScoreCards(scores, ticker, motionEnvironment.systemEnabled,
-                            {draftIntent=library.intent;scoreTab=true;showIntent=true},{showScoreReset=true})
                     }
                     val recommendations=library.recommendation
                     if(recommendations!=null) {
@@ -434,10 +437,16 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                                 }
                             }
                         }
-                    } else {
-                        item { SectionHeader("收藏精选", {tab=2}, "查看全部") }
-                        items(library.favorites.take(6),key={it.mid}) {song ->
-                            TrackRow(song, "", song.mid==player.mid, {onPlay(song)}, {detailSong=song})
+                    }
+                    if (connected) item {
+                        HomeScoreCards(scores, ticker, motionEnvironment.systemEnabled,
+                            { draftIntent = library.intent; scoreTab = true; showIntent = true },
+                            { showScoreReset = true })
+                    }
+                    if (recommendations == null) {
+                        item { SectionHeader("收藏精选", { tab = 2 }, "查看全部") }
+                        items(library.favorites.take(6), key = { it.mid }) { song ->
+                            TrackRow(song, "", song.mid == player.mid, { onPlay(song) }, { detailSong = song })
                         }
                     }
                     if(library.favorites.isEmpty()) item {Text(if(connected)"收藏正在路上，稍后就会出现在这里。" else "登录后自动同步收藏，无需逐首填写曲风。",color=ResonancePalette.muted,fontSize=TypeSize.action,modifier=Modifier.padding(vertical=Space.x4))}
@@ -458,12 +467,16 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                                 { draftIntent = library.intent; scoreTab = false; showIntent = true }, Accent)
                         }
                     }
-                    items(discoveryGenres, key = { "genre-grid-${it.first().label}" }) { row ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.tileGap)) {
-                            row.forEach { tile ->
-                                GenreTile(tile, discoveryGenre == tile.label, { discoveryGenre = tile.label }, Modifier.weight(1f))
+                    itemsIndexed(discoveryGenres, key = { _, row -> "genre-grid-${row.first().label}" }) { index, row ->
+                        if (index == 0 && row.size == 3) {
+                            FeaturedGenres(row, discoveryGenre) { discoveryGenre = it }
+                        } else {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.tileGap)) {
+                                row.forEach { tile ->
+                                    GenreTile(tile, discoveryGenre == tile.label, { discoveryGenre = tile.label }, Modifier.weight(1f))
+                                }
+                                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                             }
-                            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                         }
                     }
                     val entries = browserEntries.orEmpty()
@@ -912,7 +925,7 @@ private fun GenreScoreSummary(scores: List<GenreScore>, ticker: FrameTicker, sys
             val maxAbs = (scores.firstOrNull()?.let { abs(it.combined) } ?: 0.0).coerceAtLeast(6.0)
             items(scores, key = { it.label }) { score ->
                 ScoreCard(score, maxAbs, Space.profileScoreWidth - Space.x6, ticker, systemMotion,
-                    Modifier.size(Space.profileScoreWidth, Space.heroCover), compact = true)
+                    Modifier.size(Space.profileScoreWidth, Space.profileScoreHeight), compact = true)
             }
         }
         TextAction("清除当前所有分数", onClear, Muted)

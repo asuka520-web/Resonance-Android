@@ -111,13 +111,16 @@ internal fun TopBar(connected: Boolean, ticker: FrameTicker, logo: MotionFloat, 
                 val height = Motion.logoHeight(index, time / Motion.NanosPerMs.toFloat(), envelope)
                 val x = size.width * (.14f + index * .21f)
                 val half = size.height * height / 2
-                drawLine(ResonancePalette.signal, Offset(x, center.y - half), Offset(x, center.y + half),
+                drawLine(ResonancePalette.warm, Offset(x, center.y - half), Offset(x, center.y + half),
                     strokeWidth = Space.logoStroke.toPx(), cap = StrokeCap.Round)
             }
         }
-        Text("Resonance", Modifier.weight(1f).padding(start = Space.wordmarkGap), color = ResonancePalette.sand,
-            style = resonanceTextStyle(TypeSize.title, FontWeight.ExtraBold, english = true), letterSpacing = TypeSize.logoTracking,
-            maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Column(Modifier.weight(1f).padding(start = Space.wordmarkGap)) {
+            Text("Resonance", color = ResonancePalette.sand,
+                style = resonanceTextStyle(TypeSize.title, FontWeight.ExtraBold, english = true), letterSpacing = TypeSize.logoTracking,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            ResonanceText("by Ardolie", TypeSize.caption, color = ResonancePalette.muted, english = true)
+        }
         Row(Modifier.heightIn(min = Space.touch).clickable(interaction, LocalIndication.current, role = Role.Button,
             onClick = onAccount).resonancePress(interaction),
             horizontalArrangement = Arrangement.spacedBy(Space.statusDot), verticalAlignment = Alignment.CenterVertically) {
@@ -384,8 +387,8 @@ internal fun Dock(
                     ShuffleGlyph(modeColor)
                 }
                 val playing = player.playing || (player.loading && player.playRequested)
-                IconAction("播放或暂停", onToggle, ResonancePalette.signal, filled = true) {
-                    PlayPauseMorph(playing)
+                IconAction("播放或暂停", onToggle, ResonancePalette.line, outline = true) {
+                    PlayPauseMorph(playing, color = ResonancePalette.sand)
                 }
                 IconAction("下一首", onNext, ResonancePalette.sand) {
                     Glyph(ResonanceGlyph.NEXT, Modifier.size(Space.nextGlyph), ResonancePalette.sand)
@@ -399,7 +402,7 @@ internal fun Dock(
             Box(Modifier.offset {
                 val position = if (animate) selection.value else tab.toFloat()
                 IntOffset((slotWidth * (position + .5f) - Space.navHalfWidth).roundToPx(), Space.opticalInset.roundToPx())
-            }.size(width = Space.listCover, height = Space.navPillHeight).background(ResonancePalette.sand, CircleShape))
+            }.size(width = Space.listCover, height = Space.navPillHeight).background(ResonancePalette.raised, CircleShape))
             Row(Modifier.matchParentSize().selectableGroup()) {
                 homeDestinations.forEachIndexed { index, (label, glyph) ->
                     val selected = index == tab
@@ -408,7 +411,7 @@ internal fun Dock(
                         role = Role.Tab, onClick = { onTab(index) }).resonancePress(interaction),
                         horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(Modifier.padding(top = Space.opticalInset).size(width = Space.listCover, height = Space.navPillHeight), contentAlignment = Alignment.Center) {
-                            Glyph(glyph, Modifier.size(Space.navGlyph), if (selected) ResonancePalette.ink else ResonancePalette.muted)
+                            Glyph(glyph, Modifier.size(Space.navGlyph), if (selected) ResonancePalette.signal else ResonancePalette.muted)
                         }
                         ResonanceText(label, TypeSize.secondary, color = if (selected) ResonancePalette.sand else ResonancePalette.muted,
                             weight = if (selected) FontWeight.Bold else FontWeight.Medium)
@@ -441,7 +444,8 @@ private val pauseOutline = floatArrayOf(.25f,.20f, .41f,.20f, .41f,.80f, .25f,.8
     .59f,.20f, .75f,.20f, .75f,.80f, .59f,.80f)
 
 @Composable
-internal fun PlayPauseMorph(playing: Boolean, modifier: Modifier = Modifier.size(Space.x6)) {
+internal fun PlayPauseMorph(playing: Boolean, modifier: Modifier = Modifier.size(Space.x6),
+    color: Color = ResonancePalette.ink) {
     val animate = LocalResonanceMotion.current
     val target = if (playing) 1f else 0f
     val phase = resonanceAnimatedValue(target, Motion.PlayMorph, Motion.easeInOut, "play pause")
@@ -456,7 +460,7 @@ internal fun PlayPauseMorph(playing: Boolean, modifier: Modifier = Modifier.size
                 if (index % 8 == 0) path.moveTo(x, y) else path.lineTo(x, y)
                 if (index % 8 == 6) path.close()
             }
-            drawPath(path, ResonancePalette.ink)
+            drawPath(path, color)
         }
     }) {}
 }
