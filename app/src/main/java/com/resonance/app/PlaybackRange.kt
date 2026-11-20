@@ -50,9 +50,9 @@ object DirectionFallback {
             if (GenreEvidence.comparable(song.genres).isEmpty()) return .65
             return recentStyles.maxOf {GenreEvidence.affinity(song.genres,it)}
         }
-        val pool = tracks.filter {
-            it.mediaId !in rejected && it.recordingId !in rejectedRecordings && (candidateIds == null || it.mediaId in candidateIds)
-        }.sortedWith(compareBy<StyleTrack> {similarityToSkipped(it)}
+        val inScope = tracks.filter { candidateIds == null || it.mediaId in candidateIds }
+        val pool = inScope.filter { it.mediaId !in rejected && it.recordingId !in rejectedRecordings }
+            .sortedWith(compareBy<StyleTrack> {similarityToSkipped(it)}
             .thenByDescending {GenrePreferenceScores.preference(it,events,scores)})
             .distinctBy {it.recordingId}.toMutableList()
         val ranked=mutableListOf<StyleTrack>()
@@ -64,9 +64,12 @@ object DirectionFallback {
         val selected=(ranked.filter {it.mediaId in known}.take(7)+ranked.filter {it.mediaId !in known}.take(3)).toMutableList()
         selected.addAll(ranked.filter {it !in selected}.take(10-selected.size))
         if(selected.isEmpty()) return original.copy(explanation=original.explanation+
-            "\n当前范围内没有避开近期听歌和换向目标的候选，继续原队列。")
-        return StylePlan("换一批", original.explanation + if(recentStyles.isEmpty())
+            "\n当前范围内有 ${inScope.size} 首符合选歌条件，排除当前歌曲、最近听过的歌和近期换向目标后没有候选，继续原队列。")
+        val explanation = if (original.rejectedGenres.isEmpty()) original.explanation else
+            "跳过的歌曲多带有 ${original.rejectedGenres.joinToString()}，但当前没有曲风资料足够且符合条件的其他风格候选。"
+        return StylePlan("换一批", explanation + if(recentStyles.isEmpty())
             "\n换一批近期未出现的候选。" else "\n换一批近期未出现的候选，优先选与已知快跳曲风区别较大的歌曲。",
-            selected.map {StylePick(it,"四次快跳后的换批候选",it.mediaId !in known)},directionKind="BATCH")
+            ranked.filter { it in selected }.map { StylePick(it, "四次快跳后的换批候选", it.mediaId !in known) },
+            directionKind = "BATCH")
     }
 }

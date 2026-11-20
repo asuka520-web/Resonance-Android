@@ -111,6 +111,11 @@ object CatalogueStore {
     fun saveDiscovery(context: Context, scope: String, pool: DiscoveryPool) {
         library(context, scope).edit().putString("discovery", pool.encode()).apply()
     }
+    fun playlistDiscovery(context: Context, scope: String) =
+        PlaylistDiscoveryPool.decode(library(context, scope).getString("playlistDiscovery", null))
+    fun savePlaylistDiscovery(context: Context, scope: String, pool: PlaylistDiscoveryPool) {
+        library(context, scope).edit().putString("playlistDiscovery", pool.encode()).apply()
+    }
     fun genre(context: Context, mid: String) = CatalogueCodec.genres(context.getSharedPreferences("qq_catalogue_genres", Context.MODE_PRIVATE).getString(mid, null))
     fun saveGenre(context: Context, value: CatalogueGenre) {
         context.getSharedPreferences("qq_catalogue_genres", Context.MODE_PRIVATE).edit().putString(value.mid, CatalogueCodec.genres(value)).apply()

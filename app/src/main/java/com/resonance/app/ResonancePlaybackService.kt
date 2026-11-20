@@ -48,6 +48,8 @@ object PlaybackStateBus {
     fun publish(state: PlayerStatus) { value = state; listeners.toList().forEach { it(state) } }
 }
 
+private class QqAudioResolutionException(message: String) : IOException(message)
+
 /** Resolves signed URLs on the loader thread and hides them from session metadata and cache indexes. */
 @UnstableApi
 private class QqStreamDataSource(private val source: DataSource) : DataSource {
@@ -57,11 +59,13 @@ private class QqStreamDataSource(private val source: DataSource) : DataSource {
         val uri = dataSpec.uri
         if (uri.scheme != "qqtrack") throw IOException("Unsupported media source")
         val mid = uri.host ?: throw IOException("Missing track")
-        val song = QqLibrary.track(mid) ?: throw IOException("Track no longer in catalogue")
-        val account = QqSessionManager.active ?: throw IOException("Account signed out")
+        val song = QqLibrary.track(mid) ?: throw QqAudioResolutionException("目标歌曲已不在当前曲库。")
+        val account = QqSessionManager.active ?: throw QqAudioResolutionException("QQ 音乐账号已退出，请重新登录。")
         originalUri = uri
         val url = try { runBlocking { QqAccountClient.playbackUrl(account, song) } }
-        catch (_: Exception) { throw IOException("QQ playback authorization unavailable") }
+        catch (error: QqConnectionException) { throw QqAudioResolutionException(error.publicReason) }
+        catch (_: IOException) { throw QqAudioResolutionException("请求 QQ 音乐音源时网络中断或超时。") }
+        catch (_: Exception) { throw QqAudioResolutionException("QQ 音源资料暂时无法读取。") }
         return source.open(dataSpec.withUri(Uri.parse(url)).withRequestHeaders(mapOf("Referer" to "https://y.qq.com/")))
     }
     override fun read(buffer: ByteArray, offset: Int, length: Int) = source.read(buffer, offset, length)
@@ -176,7 +180,8 @@ class ResonancePlaybackService : MediaSessionService() {
                 directionNotice=confirmation.copy(message="$prefix · $title")
                 pendingDirection?.let {QqLibrary.updateDirection(it,"PLAYING","已核对目标歌曲身份及连续播放进度。")};pendingDirection=null
             } else if(pendingDirection!=null && !noticeGate.pending) {
-                QqLibrary.updateDirection(pendingDirection!!,"UNCONFIRMED","未在时限内确认目标完整播放，可能为暂停、加载或试听。")
+                val detail = if (excerpt) "目标只提供试听片段。" else "未在时限内确认播放，目标可能正在加载或已暂停。"
+                QqLibrary.updateDirection(pendingDirection!!,"UNCONFIRMED",detail)
                 pendingDirection=null;QqLibrary.feedback("尚未确认自动换向，请查看换向记录。")
             }
             if (player.isPlaying && player.currentPosition >= 1500 && confirmedMid != mid) {
@@ -218,6 +223,11 @@ class ResonancePlaybackService : MediaSessionService() {
             override fun onRepeatModeChanged(repeatMode:Int){saveMode()}
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled:Boolean){saveMode();if(shuffleModeEnabled){preferenceShuffle.reset();shuffleKey=null;refreshPreferenceShuffle()}}
             override fun onIsPlayingChanged(isPlaying: Boolean) { tracker.tick(SystemClock.elapsedRealtime(), isPlaying);tickListeningTime(isPlaying) }
+            override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+                if (reason == Player.DISCONTINUITY_REASON_SEEK || reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) {
+                    noticeGate.resetProgress()
+                }
+            }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val mid = mediaItem?.mediaId?.removePrefix("qq:")
                 if(mid!=null)preferenceShuffle.visit(mid,previousRequested && reason==Player.MEDIA_ITEM_TRANSITION_REASON_SEEK)
@@ -253,11 +263,13 @@ class ResonancePlaybackService : MediaSessionService() {
                         val requestedScope=historyScope
                         val requestedEpoch=QqLibrary.state.scoreEpoch
                         handler.post {
-                            if(historyScope!=requestedScope || QqLibrary.state.scoreEpoch!=requestedEpoch || player.currentMediaItem?.mediaId?.removePrefix("qq:")!=mid || !player.playWhenReady)return@post
+                            if(historyScope!=requestedScope || QqLibrary.state.accountScope!=requestedScope ||
+                                QqSessionManager.active==null || QqLibrary.state.scoreEpoch!=requestedEpoch ||
+                                player.currentMediaItem?.mediaId?.removePrefix("qq:")!=mid || !player.playWhenReady)return@post
                             val range = selectedRange()
                             val plan = QqLibrary.direction(mid.orEmpty(), range)
                             val items = plan.picks.mapNotNull { QqLibrary.track(it.track.mediaId.removePrefix("qq:")) }.map(CatalogueMediaItems::recommendationItem)
-                            if (items.isNotEmpty() && QqSessionManager.active != null) {
+                            if (items.isNotEmpty()) {
                                 nextTransition = TrackTransition.AUTOMATIC
                                 automaticQueue = true
                                 batchMids=items.map {it.mediaId.removePrefix("qq:")}
@@ -273,7 +285,10 @@ class ResonancePlaybackService : MediaSessionService() {
                                 player.prepare()
                                 player.play()
                                 message = "连续快跳，已请求切换推荐方向。"
-                            } else {QqLibrary.notice(plan.explanation);QqLibrary.feedback("暂无合适的新候选，继续原队列。")}
+                            } else {
+                                QqLibrary.beginDirection(mid.orEmpty(), null, plan)
+                                QqLibrary.feedback("暂无合适的新候选，继续原队列。")
+                            }
                         }
                     }
                 }
@@ -298,7 +313,17 @@ class ResonancePlaybackService : MediaSessionService() {
             }
             override fun onPlayerError(error: PlaybackException) {
                 noticeGate.cancel()
-                pendingDirection?.let {QqLibrary.updateDirection(it,"FAILED","目标音源未能播放，请核对账号权益或网络。")};pendingDirection=null
+                pendingDirection?.let { id ->
+                    val detail = generateSequence<Throwable>(error) { it.cause }.filterIsInstance<QqAudioResolutionException>()
+                        .firstOrNull()?.message ?: when (error.errorCode) {
+                        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+                        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "音源连接中断或超时。"
+                        PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "音源服务器拒绝了播放请求。"
+                        else -> "播放器未能加载目标歌曲。"
+                    }
+                    QqLibrary.updateDirection(id, "FAILED", detail)
+                }
+                pendingDirection=null
                 QqLibrary.feedback("这首歌暂时无法播放。")
                 message = "这首歌暂时无法播放，请检查账号权益或稍后重试。"
                 tracker.suspend(SystemClock.elapsedRealtime())

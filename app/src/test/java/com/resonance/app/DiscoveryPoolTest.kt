@@ -35,6 +35,22 @@ class DiscoveryPoolTest {
         val chosen = DiscoverySeedPolicy.select(tracks, genres, events, 3).map {it.mid}
         assertEquals(listOf("liked","rock1","jazz1"), chosen)
     }
+    @Test fun playlistCacheKeepsRealSourcesAndContinuesPastTheLastLoadedPlaylist() {
+        val playlists = (1..8).map { QqCataloguePlaylist("$it", "list-$it") }
+        var pool = PlaylistDiscoveryPool()
+        for ((index, playlist) in playlists.take(6).withIndex()) {
+            pool = pool.add(PlaylistDiscoveryBatch(playlist, 1000L + index, listOf(song("track$index"), song("shared"))))
+        }
+        for (playlist in pool.nextPlaylists(playlists, 1100)) {
+            pool = pool.add(PlaylistDiscoveryBatch(playlist, 1100, listOf(song("shared"))))
+        }
+        val restored = PlaylistDiscoveryPool.decode(pool.encode())
+        assertEquals(6, restored.batches.size)
+        assertEquals("list-8", restored.sources()["shared"])
+        assertEquals(1, restored.tracks.count { it.mid == "shared" })
+        assertEquals(playlists.take(2), restored.nextPlaylists(playlists, 1101))
+        assertTrue(PlaylistDiscoveryPool.decode(null).tracks.isEmpty())
+    }
     @Test fun retryPreservesKnownGenresAndMigratesExistingUnknownRecords() {
         val ready = genre("ready","pop")
         assertEquals(ready, GenreLookupPolicy.retry(ready))

@@ -37,8 +37,11 @@ object DiscoveryBrowser {
             remaining.remove(next)
             val seeds = state.discoverySources[next.mid].orEmpty()
             val title = seeds.firstNotNullOfOrNull { titles[it] }
-            val reason = if (title == null) "曲库候选 · 暂无可显示的关联来源" else
-                "来自「$title」${if(seeds.size>1)"等 ${seeds.size} 首歌" else ""}的相关推荐"
+            val reason = when {
+                title != null -> "来自「$title」${if(seeds.size>1)"等 ${seeds.size} 首歌" else ""}的相关推荐"
+                next.mid in state.discoveryPlaylists -> "来自 QQ 歌单「${state.discoveryPlaylists.getValue(next.mid)}」"
+                else -> "曲库候选 · 暂无可显示的关联来源"
+            }
             chosen.add(DiscoveryEntry(next,seeds,next.mid in heard,reason))
             artistCounts[artist(next)] = (artistCounts[artist(next)] ?: 0) + 1
         }

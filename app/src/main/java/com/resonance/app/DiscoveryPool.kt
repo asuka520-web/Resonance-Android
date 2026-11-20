@@ -4,6 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 data class DiscoveryBatch(val seedMid: String, val fetchedAt: Long, val tracks: List<QqCatalogueTrack>)
+data class PlaylistDiscoveryBatch(val playlist: QqCataloguePlaylist, val fetchedAt: Long, val tracks: List<QqCatalogueTrack>)
 
 /** Exact QQ relationships, stored per account. Neither inferred genres nor playback URLs. */
 data class DiscoveryPool(val batches: List<DiscoveryBatch> = emptyList()) {
@@ -32,6 +33,53 @@ data class DiscoveryPool(val batches: List<DiscoveryBatch> = emptyList()) {
             }
             DiscoveryPool(batches.distinctBy { it.seedMid })
         } catch (_: Exception) { DiscoveryPool() }
+    }
+}
+
+/** A separate source from QQ's direct relationships: appearing in a playlist does not imply similarity. */
+data class PlaylistDiscoveryPool(val batches: List<PlaylistDiscoveryBatch> = emptyList()) {
+    val tracks get() = batches.flatMap { it.tracks }.distinctBy { it.mid }
+
+    fun sources(): Map<String, String> = buildMap {
+        for (batch in batches.asReversed()) {
+            for (track in batch.tracks) put(track.mid, batch.playlist.name)
+        }
+    }
+
+    fun nextPlaylists(playlists: List<QqCataloguePlaylist>, now: Long): List<QqCataloguePlaylist> {
+        val latest = batches.firstNotNullOfOrNull { batch ->
+            playlists.indexOfFirst { it.id == batch.playlist.id }.takeIf { it >= 0 }
+        } ?: -1
+        val fresh = batches.filter { now - it.fetchedAt in 0 until 24 * 60 * 60 * 1000L }
+            .map { it.playlist.id }.toSet()
+        return (playlists.drop(latest + 1) + playlists.take(latest + 1))
+            .filterNot { it.id in fresh }.take(2)
+    }
+
+    fun add(batch: PlaylistDiscoveryBatch): PlaylistDiscoveryPool = PlaylistDiscoveryPool(
+        (listOf(batch.copy(tracks = batch.tracks.distinctBy { it.mid }.take(50))) +
+            batches.filterNot { it.playlist.id == batch.playlist.id }).take(6)
+    )
+
+    fun encode(): String = JSONArray(batches.map { batch -> JSONObject().put("id", batch.playlist.id)
+        .put("name", batch.playlist.name).put("fetchedAt", batch.fetchedAt)
+        .put("tracks", JSONArray(batch.tracks.map(CatalogueCodec::track))) }).toString()
+
+    companion object {
+        fun decode(raw: String?): PlaylistDiscoveryPool = try {
+            val rows = JSONArray(raw ?: "[]")
+            val batches = (0 until rows.length().coerceAtMost(6)).mapNotNull { index ->
+                val row = rows.optJSONObject(index) ?: return@mapNotNull null
+                val id = row.optString("id")
+                val name = row.optString("name")
+                val tracks = row.optJSONArray("tracks") ?: return@mapNotNull null
+                if (!id.matches(Regex("[0-9]+")) || name.isBlank()) return@mapNotNull null
+                PlaylistDiscoveryBatch(QqCataloguePlaylist(id, name), row.optLong("fetchedAt"),
+                    (0 until tracks.length().coerceAtMost(50)).mapNotNull { tracks.optJSONObject(it)?.let(CatalogueCodec::track) }
+                        .distinctBy { it.mid })
+            }
+            PlaylistDiscoveryPool(batches.distinctBy { it.playlist.id })
+        } catch (_: org.json.JSONException) { PlaylistDiscoveryPool() }
     }
 }
 

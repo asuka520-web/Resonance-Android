@@ -871,8 +871,12 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                 if (library.directionHistory.isEmpty()) item { EmptyState("还没有自动换向记录。连续 4 次有效快跳后会记录尝试结果。") }
                 items(library.directionHistory.asReversed(),key={it.id}) {row ->
                     Column(Modifier.fillMaxWidth().padding(vertical = Space.x2), verticalArrangement = Arrangement.spacedBy(Space.x2)) {
-                        Text(directionStateName(row.state)+" · "+directionLabel(row.kind),color=Accent,fontSize=TypeSize.secondary)
-                        Text(row.targetName.ifBlank {row.targetMid},fontSize=TypeSize.compactLine)
+                        val status = directionStateName(row.state)
+                        Text(if (row.state == "NO_CANDIDATE") status else "$status · ${directionLabel(row.kind)}",
+                            color=Accent,fontSize=TypeSize.secondary)
+                        row.targetName.ifBlank { row.targetMid }.takeIf(String::isNotBlank)?.let {
+                            Text(it,fontSize=TypeSize.compactLine)
+                        }
                         Text(java.text.SimpleDateFormat("MM-dd HH:mm:ss",java.util.Locale.getDefault()).format(java.util.Date(row.time)),fontSize=TypeSize.caption,color=Muted)
                         Text(row.detail.ifBlank {"等待目标歌曲播放确认"},fontSize=TypeSize.secondary,lineHeight=TypeSize.readingLine)
                         Text(row.reason,fontSize=TypeSize.caption,color=Muted,lineHeight=TypeSize.lead)
@@ -968,7 +972,7 @@ fun DirectionChangeBanner(notice:DirectionNotice?,modifier:Modifier=Modifier) {
     }
 }
 private fun scoreText(value:Double)=String.format(java.util.Locale.ROOT,"%+.1f",value)
-private fun directionStateName(state:String)=when(state){"PLAYING"->"已确认播放";"FAILED"->"播放失败";"CANCELED"->"已取消";"UNCONFIRMED"->"未确认播放";else->"正在切换"}
+private fun directionStateName(state:String)=when(state){"PLAYING"->"已确认播放";"FAILED"->"播放失败";"CANCELED"->"已取消";"UNCONFIRMED"->"未确认播放";"NO_CANDIDATE"->"未切换";else->"正在切换"}
 @Composable
 private fun GenreScoreSummary(scores: List<GenreScore>, ticker: FrameTicker, systemMotion: Boolean,
     onAll: () -> Unit, onClear: () -> Unit) {
@@ -1043,7 +1047,7 @@ private fun rememberDiscoveryEntries(
     library: LibraryState, search: String, unheardOnly: Boolean, genre: String?, active: Boolean
 ): List<DiscoveryEntry>? {
     val input = remember(library.favorites, library.discoveries, library.genres, library.listening,
-        library.scoreSignals, library.manualScores, library.discoverySources, library.intent) { library }
+        library.scoreSignals, library.manualScores, library.discoverySources, library.discoveryPlaylists, library.intent) { library }
     return key(library.accountScope, library.intent, search, unheardOnly, genre) {
         var entries by remember { mutableStateOf<List<DiscoveryEntry>?>(null) }
         if (active) LaunchedEffect(input) {

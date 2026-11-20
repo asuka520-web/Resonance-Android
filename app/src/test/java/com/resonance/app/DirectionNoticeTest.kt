@@ -33,4 +33,16 @@ class DirectionNoticeTest {
         assertNull(gate.observe("b",true,1000,false,3000))
         assertEquals(setOf("soul"),gate.observe("b",true,2000,false,4000)!!.genres)
     }
+
+    @Test fun aSeekAndThePreviousTracksExcerptCannotConfirmOrCancelTheTarget() {
+        val gate = DirectionNoticeGate()
+        gate.request("target", setOf("jazz"), 0)
+        assertNull(gate.observe("previous", true, 1000, true, 1000))
+        assertTrue(gate.pending)
+        assertNull(gate.observe("target", true, 1000, false, 2000))
+        assertNull(gate.observe("target", true, 30000, false, 3000))
+        gate.resetProgress()
+        assertNull(gate.observe("target", true, 31500, false, 4000))
+        assertNotNull(gate.observe("target", true, 32500, false, 5000))
+    }
 }

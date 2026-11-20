@@ -30,6 +30,16 @@ class DirectionSelectionTest {
         assertEquals("BATCH", duplicatePlan.directionKind)
     }
 
+    @Test fun mixedSkipsStartTheBatchWithTheFarthestKnownStyleEvenIfItIsNew() {
+        val skipped = listOf(track("s1", "house"), track("s2", "rock"), track("s3"), track("s4"))
+        val favorite = QqCatalogueTrack("familiar", "familiar", "收藏", "歌手", "", 200000)
+        val plan = planDirection(LibraryState(favorites = listOf(favorite), listening = events(skipped)),
+            skipped + listOf(track("familiar", "house"), track("fresh", "folk")), "qq:current", PlaybackRange.LIBRARY)
+
+        assertEquals("BATCH", plan.directionKind)
+        assertEquals(listOf("qq:fresh", "qq:familiar"), plan.picks.map { it.track.mediaId })
+    }
+
     @Test fun tenAttemptsNeverReuseTargetsEvenWhenTheyNeverEnterListeningEvents() {
         val skipped = (1..4).map {track("s$it")}
         val candidates = (1..12).map {track("choice$it", "folk")}

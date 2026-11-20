@@ -16,7 +16,8 @@ data class LibraryState(
     val favoriteStates:Map<String,Boolean> = emptyMap(),val favoriteBusy:Set<String> = emptySet(),val favoriteUncertain:Set<String> = emptySet(),
     val feedback:DirectionNotice?=null,val directionHistory:List<DirectionSwitch> = emptyList(),
     val enriching:Boolean=false,val enrichedProgress:Int=0,val enrichmentTotal:Int=0,
-    val scoreListening:List<ListeningSignal>?=null,val scoreEpoch:Long=0,val listeningTimeMs:Long=0,val manualScores:Map<String,Double> = emptyMap()
+    val scoreListening:List<ListeningSignal>?=null,val scoreEpoch:Long=0,val listeningTimeMs:Long=0,val manualScores:Map<String,Double> = emptyMap(),
+    val discoveryPlaylists: Map<String, String> = emptyMap()
 ) {
     val scoreSignals get()=scoreListening?:listening
     val allTracks get() = (favorites + discoveries).distinctBy { it.mid }
@@ -36,6 +37,8 @@ object QqLibrary {
     private var automaticEnriched=false
     private val genreLookup=CatalogueGenreLookup()
     private var discoveryPool = DiscoveryPool()
+    private var playlistDiscoveryPool = PlaylistDiscoveryPool()
+    private var playlistDiscoveryRequested = false
     private var activeDiscoveryMid = ""
     private val pendingSeeds = linkedSetOf<String>()
     private val discoveryRetryAt = mutableMapOf<String, Long>()
@@ -57,12 +60,15 @@ object QqLibrary {
     private fun update(next: LibraryState) { value = next.copy(revision = value.revision + 1); listeners.toList().forEach { it(value) } }
     fun notice(message: String) = update(value.copy(message = message))
     fun feedback(message:String){val now=android.os.SystemClock.elapsedRealtime();update(value.copy(message=message,feedback=DirectionNotice(System.nanoTime(),now,emptySet(),"INFO",message)))}
-    fun beginDirection(from:String,target:String,plan:StylePlan):Long {
+    fun beginDirection(from:String,target:String?,plan:StylePlan):Long {
         val context=app?:return 0
         val id=System.nanoTime()
-        val row=DirectionSwitch(id,System.currentTimeMillis(),from,target,track(target)?.name.orEmpty(),plan.directionKind,plan.explanation,
+        val mid = target.orEmpty()
+        val row=DirectionSwitch(id,System.currentTimeMillis(),from,mid,track(mid)?.name.orEmpty(),plan.directionKind,plan.explanation,
+            state = if (target == null) "NO_CANDIDATE" else "PREPARING",
+            detail = if (target == null) plan.heading else "",
             scores=GenrePreferenceScores.calculate(styleTracks(),value.scoreSignals,value.manualScores).associate {it.label to it.combined},
-            targetRecordingId=value.genres[target]?.recordingId.orEmpty())
+            targetRecordingId=value.genres[mid]?.recordingId.orEmpty())
         val rows=(value.directionHistory+row).takeLast(20)
         CatalogueStore.saveDirectionHistory(context,value.accountScope,rows);update(value.copy(directionHistory=rows))
         return id
@@ -131,11 +137,15 @@ object QqLibrary {
             priority.clear(); recommendationAnchor = null;surpriseId=null
             val saved = if (key.isBlank()) emptyList() else CatalogueStore.songs(context, key)
             discoveryPool = if (key.isBlank()) DiscoveryPool() else CatalogueStore.discovery(context, key)
-            val genres = (saved + discoveryPool.tracks).mapNotNull { song -> CatalogueStore.genre(context, song.mid)?.let { song.mid to it } }.toMap()
+            playlistDiscoveryPool = if (key.isBlank()) PlaylistDiscoveryPool() else CatalogueStore.playlistDiscovery(context, key)
+            playlistDiscoveryRequested = false
+            val discoveries = (discoveryPool.tracks + playlistDiscoveryPool.tracks).distinctBy { it.mid }
+            val genres = (saved + discoveries).mapNotNull { song -> CatalogueStore.genre(context, song.mid)?.let { song.mid to it } }.toMap()
             val preferences=context.getSharedPreferences("qq_intent_$key",Context.MODE_PRIVATE)
             val intent=if(key.isBlank())ListeningIntent() else ListeningIntent(preferences.getStringSet("wanted",emptySet()).orEmpty().toSet(),
                 preferences.getStringSet("excluded",emptySet()).orEmpty().toSet(),preferences.getBoolean("all",false)).normalized()
-            update(LibraryState(accountScope = key, favorites = saved, discoveries = discoveryPool.tracks, genres = genres,
+            update(LibraryState(accountScope = key, favorites = saved, discoveries = discoveries, genres = genres,
+                discoveryPlaylists = playlistDiscoveryPool.sources(),
                 intent=intent,
                 scoreListening=if(key.isBlank())emptyList() else CatalogueStore.scoreSignals(context,key),
                 scoreEpoch=if(key.isBlank())0 else CatalogueStore.scoreEpoch(context,key),listeningTimeMs=ListeningTimeStore.totalMs(context),
@@ -213,12 +223,13 @@ object QqLibrary {
             try {
                 val tracks = QqAccountClient.tracks(account, playlist.id)
                 if (token != generation) return@launch
-                val cached = tracks.mapNotNull { song -> CatalogueStore.genre(context, song.mid)?.let { song.mid to it } }.toMap()
-                update(value.copy(discoveries = (tracks + value.discoveries).distinctBy { it.mid }, genres = value.genres + cached,
+                update(withPlaylistCandidates(context, playlist, tracks).copy(
                     openedPlaylist = playlist, playlistTracks = tracks,
                     message = "已载入「${playlist.name}」的首批歌曲。"))
+                refreshRecommendation()
                 analyze()
-            } catch (_: Exception) { if (token == generation) notice("歌单内容暂时不可用。") }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { if (token == generation) notice("歌单内容暂时不可用。") }
         }
     }
 
@@ -443,7 +454,7 @@ object QqLibrary {
         }
     }
     fun warmDiscovery(manual: Boolean = false) {
-        if (value.accountScope.isBlank()) return
+        if (value.accountScope.isBlank() || session == null) return
         val now = System.currentTimeMillis()
         val budget = if (manual) 6 else (6 - automaticSeeds.size).coerceAtLeast(0)
         // A fresh installation initially takes two seeds; after genre analysis it can spread across styles.
@@ -454,8 +465,10 @@ object QqLibrary {
             if (!manual) automaticSeeds.add(seed.mid)
             enqueueDiscovery(seed.mid)
         }
-        if (manual && pendingSeeds.isEmpty() && discoveryJob?.isActive != true)
-            update(value.copy(discoveryMessage = "候选资料已缓存，暂无需要更新的收藏种子。"))
+        if (manual) {
+            playlistDiscoveryRequested = true
+            drainDiscovery()
+        }
     }
     private fun enqueueDiscovery(mid: String) {
         val seed = track(mid) ?: return
@@ -466,13 +479,19 @@ object QqLibrary {
         drainDiscovery()
     }
     private fun drainDiscovery() {
-        if (discoveryJob?.isActive == true || pendingSeeds.isEmpty()) return
+        if (discoveryJob?.isActive == true || (pendingSeeds.isEmpty() && !playlistDiscoveryRequested)) return
         val context = app ?: return
         val token = generation
         discoveryJob = scope.launch {
-            update(value.copy(discovering = true, discoveryMessage = "正在从收藏发现新歌…"))
+            update(value.copy(discovering = true, discoveryMessage = ""))
+            var hadFailures = false
             try {
-                while (token == generation && pendingSeeds.isNotEmpty()) {
+                while (token == generation && (pendingSeeds.isNotEmpty() || playlistDiscoveryRequested)) {
+                    if (playlistDiscoveryRequested) {
+                        playlistDiscoveryRequested = false
+                        if (!readDiscoveryPlaylists(context, token)) hadFailures = true
+                        continue
+                    }
                     val mid = pendingSeeds.first()
                     pendingSeeds.remove(mid)
                     val seed = track(mid) ?: continue
@@ -493,11 +512,58 @@ object QqLibrary {
                     catch (_: Exception) {
                         if (token != generation) return@launch
                         discoveryRetryAt[mid] = System.currentTimeMillis() + 15 * 60 * 1000L
-                        update(value.copy(discoveryMessage = "部分新歌候选读取失败，已有候选保留，可稍后更新。"))
+                        hadFailures = true
                     } finally { if (token == generation) activeDiscoveryMid = "" }
                     delay(1200)
                 }
-            } finally { if (token == generation) update(value.copy(discovering = false)) }
+            } finally {
+                if (token == generation) update(value.copy(discovering = false, discoveryMessage = when {
+                    hadFailures -> "部分新歌候选读取失败，已有候选保留，可稍后更新。"
+                    else -> value.discoveryMessage.ifBlank { "候选资料已缓存，暂无需要更新的来源。" }
+                }))
+            }
         }
+    }
+
+    private suspend fun readDiscoveryPlaylists(context: Context, token: Long): Boolean {
+        val account = session ?: return false
+        val playlists = try {
+            value.playlists.ifEmpty { QqAccountClient.playlists(account) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return false
+        }
+        if (token != generation) return false
+        if (playlists != value.playlists) update(value.copy(playlists = playlists))
+
+        var successful = true
+        for (playlist in playlistDiscoveryPool.nextPlaylists(playlists, System.currentTimeMillis())) {
+            if (token != generation) return false
+            try {
+                val tracks = QqAccountClient.tracks(account, playlist.id).take(50)
+                if (token != generation) return false
+                update(withPlaylistCandidates(context, playlist, tracks).copy(
+                    discoveryMessage = "QQ 歌单候选已更新，曲风资料会自动补齐。"))
+                refreshRecommendation()
+                analyze()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                successful = false
+            }
+            delay(1200)
+        }
+        return successful
+    }
+
+    private fun withPlaylistCandidates(context: Context, playlist: QqCataloguePlaylist, tracks: List<QqCatalogueTrack>): LibraryState {
+        playlistDiscoveryPool = playlistDiscoveryPool.add(PlaylistDiscoveryBatch(playlist, System.currentTimeMillis(), tracks))
+        CatalogueStore.savePlaylistDiscovery(context, value.accountScope, playlistDiscoveryPool)
+        val cached = tracks.mapNotNull { song -> CatalogueStore.genre(context, song.mid)?.let { song.mid to it } }.toMap()
+        // Retain previously queued songs for this session even after their metadata cache batch is replaced.
+        val sources = value.discoveryPlaylists + tracks.associate { it.mid to playlist.name }
+        return value.copy(discoveries = (tracks + value.discoveries).distinctBy { it.mid },
+            genres = value.genres + cached, discoveryPlaylists = sources)
     }
 }

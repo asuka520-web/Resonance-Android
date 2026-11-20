@@ -28,4 +28,16 @@ class DiscoveryBrowserTest {
         assertTrue(entries.first().reason.contains("title-seed"))
         assertFalse(entries.last().reason.contains("title-seed"))
     }
+
+    @Test fun showsPlaylistProvenanceWithoutTreatingItAsADirectRelationship() {
+        val state = LibraryState(favorites = listOf(song("seed")),
+            discoveries = listOf(song("seed"), song("onlyPlaylist"), song("direct")),
+            discoverySources = mapOf("direct" to listOf("seed")),
+            discoveryPlaylists = mapOf("seed" to "歌单", "onlyPlaylist" to "歌单", "direct" to "歌单"))
+        val entries = DiscoveryBrowser.entries(state).associateBy { it.song.mid }
+        assertFalse(entries.containsKey("seed"))
+        assertEquals("来自 QQ 歌单「歌单」", entries.getValue("onlyPlaylist").reason)
+        assertTrue(entries.getValue("onlyPlaylist").seedMids.isEmpty())
+        assertTrue(entries.getValue("direct").reason.contains("title-seed"))
+    }
 }

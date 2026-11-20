@@ -21,13 +21,15 @@ class DirectionNoticeGate {
         target=mid;genres=labels;requestedAt=now;observedAt=null;position=0;kind=noticeKind
     }
     fun cancel(){target=null;observedAt=null}
+    fun resetProgress() { observedAt = null }
     fun observe(mid:String,playing:Boolean,positionMs:Long,excerpt:Boolean,now:Long):DirectionNotice? {
         if(target==null)return null
-        if(now-requestedAt>30000 || excerpt){cancel();return null}
+        if(now-requestedAt>30000){cancel();return null}
         if(mid!=target){observedAt=null;return null}
+        if(excerpt){cancel();return null}
         if(!playing){observedAt=null;return null}
         val first=observedAt
-        if(first!=null && now-first in 500..5000L && positionMs-position>=250) {
+        if(first!=null && now-first in 500..5000L && positionMs-position in 250..(now-first+500)) {
             val event=DirectionNotice(now,now,genres,kind)
             cancel();return event
         }

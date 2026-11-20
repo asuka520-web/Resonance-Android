@@ -1,0 +1,16 @@
+[
+  {"id":"Chill", "referenceBpm":120},
+  {"id":"Sunshine", "referenceBpm":88},
+  {"id":"Morning", "referenceBpm":60},
+  {"id":"SouthernGothic", "referenceBpm":126},
+  {"id":"ThatZenMoment"},
+  {"id":"Chinatown", "referenceBpm":132, "tag":"chinese-inspired"},
+  {"id":"Chinatown_Healing", "referenceBpm":88, "tag":"chinese-inspired"},
+  {"id":"Folk_Chinese", "referenceBpm":118, "tag":"chinese-inspired"},
+  {"id":"Wuxia", "referenceBpm":136, "tag":"chinese-inspired"},
+  {"id":"Wuxia2", "referenceBpm":135, "tag":"chinese-inspired"},
+  {"id":"OpenCpop2092_Dry"},
+  {"id":"OpenCpop2092_Mixed"},
+  {"id":"OpenCpop2093_Dry"},
+  {"id":"OpenCpop2093_Mixed"}
+]
