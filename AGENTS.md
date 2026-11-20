@@ -1,5 +1,13 @@
 # AGENTS.md — Resonance Android
 
+## 项目协作要求
+
+开始任何项目任务前，先明确遵守以下要求。
+
+1. 写简洁的代码，完成用户明确提出的目标。未经要求，不擅自判断、添加功能或修改验证规则。
+2. 只做完成当前任务所必需的检查、验证、测试和验收，避免繁琐和重复的步骤。
+3. 回复用清楚、好懂的话，让小孩子也能听明白。
+
 ## Project purpose
 
 On 2026-11-17 the user explicitly chose **QQ Music account login and playback

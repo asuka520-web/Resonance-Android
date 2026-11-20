@@ -2,8 +2,10 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="root" path="app_webview/"/>
+        <exclude domain="root" path="app_webview_netease/"/>
     </cloud-backup>
     <device-transfer>
         <exclude domain="root" path="app_webview/"/>
+        <exclude domain="root" path="app_webview_netease/"/>
     </device-transfer>
 </data-extraction-rules>

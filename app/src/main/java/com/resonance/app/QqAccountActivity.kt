@@ -146,7 +146,8 @@ class QqAccountActivity : ComponentActivity() {
                     val range=PlaybackRange.parse(name)
                     getSharedPreferences("resonance_settings",MODE_PRIVATE).edit().putString("qq_playback_range",range.name).apply()
                     PlaybackStateBus.publish(PlaybackStateBus.value.copy(playbackRange=range.name))
-                },onClearScores=QqLibrary::clearScores,onSongFeedback=QqLibrary::songFeedback, liveClock=playbackClock)
+                },onClearScores=QqLibrary::clearScores,onSongFeedback=QqLibrary::songFeedback, liveClock=playbackClock,
+                onNetEaseLogin = { NetEaseAccountActivity.open(this@QqAccountActivity) })
             if (showLogin) ResonanceTheme {
                 SheetScaffold(onDismissRequest = { closeLogin() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
                     modifier = Modifier.fillMaxHeight(.96f)) {
@@ -210,8 +211,8 @@ class QqAccountActivity : ComponentActivity() {
 
 @Composable
 internal fun AccountSheetHeader(host: String, loading: Boolean, failed: Boolean, needsAuthorization: Boolean,
-    onClose: () -> Unit, onAuthorize: () -> Unit, onRetry: () -> Unit) {
-    SectionHeader("QQ 音乐账号", onClose, "完成")
+    onClose: () -> Unit, onAuthorize: () -> Unit, onRetry: () -> Unit, title: String = "QQ 音乐账号") {
+    SectionHeader(title, onClose, "完成")
     Text("官方页面 · $host", fontSize = TypeSize.caption, color = ResonancePalette.muted,
         modifier = Modifier.padding(bottom = Space.x2))
     if (needsAuthorization) TextAction("打开官方播放器页继续授权", onAuthorize, ResonancePalette.signal)

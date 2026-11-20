@@ -88,6 +88,8 @@ internal object Motion {
     const val PressScale = .97f
     const val PlayMorph = 180
     const val Navigation = 240
+    const val NavGlassStretch = .14f
+    const val NavIconScale = 1.14f
     const val PageFade = 180
     const val SecondaryPage = 240
     const val SecondaryOffsetDp = 8

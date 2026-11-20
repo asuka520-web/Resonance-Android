@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.SheetState
@@ -158,6 +159,7 @@ internal val LocalBricolage = staticCompositionLocalOf<FontFamily> { FontFamily.
 private const val BricolageAsset = "fonts/BricolageGrotesque.ttf"
 private val baseTypography = Typography()
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ResonanceTheme(content: @Composable () -> Unit) {
     val assets = LocalContext.current.assets
@@ -175,7 +177,9 @@ internal fun ResonanceTheme(content: @Composable () -> Unit) {
         )
     }
     val sand = LocalSandBudget.current ?: remember { SandBudget() }
-    CompositionLocalProvider(LocalBricolage provides font, LocalSandBudget provides sand) {
+    CompositionLocalProvider(
+        LocalBricolage provides font, LocalSandBudget provides sand, LocalRippleConfiguration provides null
+    ) {
         MaterialTheme(colorScheme = palette, typography = typography, shapes = shapes, content = content)
     }
 }

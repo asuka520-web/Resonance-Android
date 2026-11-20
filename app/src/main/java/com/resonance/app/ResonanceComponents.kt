@@ -19,6 +19,8 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -44,13 +46,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.nativeCanvas
@@ -188,13 +191,22 @@ internal fun resonanceAnimatedValue(target: Float, duration: Int, easing: Easing
 
 @Composable
 internal fun Modifier.resonancePress(interaction: MutableInteractionSource): Modifier {
-    if (!LocalResonanceMotion.current) return this
+    val animate = LocalResonanceMotion.current
     val pressed by interaction.collectIsPressedAsState()
-    val scale = resonanceAnimatedValue(if (pressed) Motion.PressScale else 1f, if (pressed) Motion.Press else Motion.Release,
+    val hovered by interaction.collectIsHoveredAsState()
+    val focused by interaction.collectIsFocusedAsState()
+    val scale = resonanceAnimatedValue(if (animate && pressed) Motion.PressScale else 1f, if (pressed) Motion.Press else Motion.Release,
         if (pressed) Motion.accelerate else Motion.release, "button press")
+    val highlight = resonanceAnimatedValue(
+        if (pressed || hovered || focused) .16f else 0f, Motion.Press, Motion.responsive, "hover highlight")
     return graphicsLayer {
         scaleX = scale.value
         scaleY = scaleX
+    }.drawWithContent {
+        drawContent()
+        if (highlight.value > 0f) drawRoundRect(
+            ResonancePalette.signal.copy(alpha = highlight.value), cornerRadius = CornerRadius(Space.x3.toPx())
+        )
     }
 }
 
@@ -329,11 +341,12 @@ internal fun TrackRow(
     subtitle: String = "", detailsButton: Boolean = false, quietDetails: Boolean = false,
     supporting: @Composable ColumnScope.() -> Unit = {}
 ) {
+    val interaction = remember { MutableInteractionSource() }
     Row(Modifier.fillMaxWidth().heightIn(min = Space.trackHeight),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
         Row(Modifier.weight(1f).heightIn(min = Space.trackHeight)
-            .combinedClickable(role = Role.Button, onClick = onPlay, onLongClick = onDetails,
-                onLongClickLabel = "${song.name}的歌曲详情"),
+            .combinedClickable(interaction, indication = null, role = Role.Button, onClick = onPlay, onLongClick = onDetails,
+                onLongClickLabel = "${song.name}的歌曲详情").resonancePress(interaction),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.x3)) {
             val cover = rememberArtworkLoad(song)
             Box(Modifier.size(Space.listCover)) {
@@ -373,8 +386,19 @@ internal fun Dock(
     val shape = Corners.dock
     val animate = LocalResonanceMotion.current
     val playhead = remember { SmoothPlayhead() }
+    val dockGlass = remember {
+        Brush.verticalGradient(listOf(ResonancePalette.raised.copy(alpha = .96f),
+            ResonancePalette.surface.copy(alpha = .92f), ResonancePalette.ink.copy(alpha = .98f)))
+    }
+    val glassRim = remember {
+        Brush.verticalGradient(listOf(ResonancePalette.signal.copy(alpha = .36f), ResonancePalette.line))
+    }
+    val tabGlass = remember {
+        Brush.verticalGradient(listOf(ResonancePalette.signal.copy(alpha = .32f), ResonancePalette.raised))
+    }
     Column(Modifier.navigationBarsPadding().padding(start = Space.x3, end = Space.x3, bottom = Space.x3, top = Space.x1)
-        .fillMaxWidth().clip(shape).background(ResonancePalette.surface).border(Space.thin, ResonancePalette.line, shape)) {
+        .fillMaxWidth().shadow(Space.x2, shape).clip(shape)
+        .background(dockGlass).border(Space.thin, glassRim, shape)) {
         if (song != null) {
             Canvas(Modifier.fillMaxWidth().height(Space.progressLine)) {
                 val frame = clock.value
@@ -448,16 +472,37 @@ internal fun Dock(
             Box(Modifier.offset {
                 val position = if (animate) selection.value else tab.toFloat()
                 IntOffset((slotWidth * (position + .5f) - Space.navHalfWidth).roundToPx(), Space.opticalInset.roundToPx())
-            }.size(width = Space.listCover, height = Space.navPillHeight).background(ResonancePalette.raised, CircleShape))
+            }.size(width = Space.listCover, height = Space.navPillHeight)
+                .graphicsLayer {
+                    val travel = if (animate) abs(selection.value - tab).coerceIn(0f, 1f) else 0f
+                    scaleX = 1f + Motion.NavGlassStretch * travel
+                }
+                .background(tabGlass, CircleShape).border(Space.thin, glassRim, CircleShape))
             Row(Modifier.matchParentSize().selectableGroup()) {
                 homeDestinations.forEachIndexed { index, (label, glyph) ->
                     val selected = index == tab
                     val interaction = remember { MutableInteractionSource() }
-                    Column(Modifier.weight(1f).fillMaxHeight().selectable(selected, interaction, LocalIndication.current,
-                        role = Role.Tab, onClick = { onTab(index) }).resonancePress(interaction),
+                    val hovered by interaction.collectIsHoveredAsState()
+                    val focused by interaction.collectIsFocusedAsState()
+                    val highlighted = hovered || focused
+                    val iconScale = resonanceAnimatedValue(
+                        if (selected || highlighted) Motion.NavIconScale else 1f,
+                        Motion.Navigation, Motion.responsive, "navigation icon")
+                    Column(Modifier.weight(1f).fillMaxHeight().selectable(selected, interaction, indication = null,
+                        role = Role.Tab, onClick = { onTab(index) }),
                         horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(Modifier.padding(top = Space.opticalInset).size(width = Space.listCover, height = Space.navPillHeight), contentAlignment = Alignment.Center) {
-                            Glyph(glyph, Modifier.size(Space.navGlyph), if (selected) ResonancePalette.signal else ResonancePalette.muted)
+                        val hoverGlass = when {
+                            focused -> Modifier.border(Space.thin, ResonancePalette.signal, CircleShape)
+                            hovered && !selected -> Modifier.background(ResonancePalette.signal.copy(alpha = .12f), CircleShape)
+                            else -> Modifier
+                        }
+                        Box(Modifier.padding(top = Space.opticalInset)
+                            .size(width = Space.listCover, height = Space.navPillHeight).then(hoverGlass),
+                            contentAlignment = Alignment.Center) {
+                            Glyph(glyph, Modifier.size(Space.navGlyph).graphicsLayer {
+                                scaleX = iconScale.value
+                                scaleY = scaleX
+                            }, if (selected || highlighted) ResonancePalette.signal else ResonancePalette.muted)
                         }
                         ResonanceText(label, TypeSize.secondary, color = if (selected) ResonancePalette.sand else ResonancePalette.muted,
                             weight = if (selected) FontWeight.Bold else FontWeight.Medium)

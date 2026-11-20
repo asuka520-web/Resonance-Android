@@ -32,7 +32,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -238,7 +237,8 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
     onPlaybackMode:(String)->Unit={},onIntent:(ListeningIntent)->Unit={QqLibrary.setIntent(it)},
     onFavorite:(String)->Unit={},onRefreshFavorite:(String)->Unit={},onEnrich:(String?)->Unit={},onPlaybackRange:(String)->Unit={},onClearScores:()->Unit={},
     onSongFeedback:(String,Set<String>,Boolean)->Unit={_,_,_->}, liveClock:State<PlaybackClock>?=null,
-    onRefreshRecommendation:(String)->Unit={QqLibrary.similar(it)}, onClearTagScore:(String)->Unit=QqLibrary::clearTagScore) {
+    onRefreshRecommendation:(String)->Unit={QqLibrary.similar(it)}, onClearTagScore:(String)->Unit=QqLibrary::clearTagScore,
+    onNetEaseLogin:(()->Unit)?=null) {
     val clock=liveClock ?: rememberUpdatedState(player.clock())
     val context=LocalContext.current
     val settings=remember {context.getSharedPreferences("resonance_settings",0)}
@@ -358,12 +358,16 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
         if (playlistId != null && first != null) playlistSeeds[playlistId] = first
     }
     val browserEntries = rememberDiscoveryEntries(library, discoverySearch, unheardOnly, discoveryGenre, tab == 1)
-    val thumbnailDir = LocalContext.current.cacheDir
     val discoveryGenres by key(library.accountScope) {
-        produceState(emptyList<List<GenreTileData>>(), tab, library.favorites, library.discoveries, library.genres, scores) {
+        produceState(emptyList<String>(), tab, library.favorites, library.discoveries, library.genres) {
             if (tab == 1) {
-                val cached = withContext(Dispatchers.IO) { CoverThumbnails.availableAlbums(thumbnailDir) }
-                value = withContext(Dispatchers.Default) { discoveryTiles(library, scores, cached).chunked(3) }
+                value = withContext(Dispatchers.Default) {
+                    library.allTracks.asSequence()
+                        .flatMap { library.genres[it.mid]?.labels.orEmpty() }
+                        .distinct()
+                        .sortedBy { genreName(it).lowercase(java.util.Locale.ROOT) }
+                        .toList()
+                }
             }
         }
     }
@@ -517,22 +521,9 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.x2),
                             verticalAlignment = Alignment.CenterVertically) {
                             PlaybackChip("本机未听", unheardOnly) { unheardOnly = !unheardOnly }
-                            PlaybackChip("全部曲风", discoveryGenre == null) { discoveryGenre = null }
-                            Spacer(Modifier.weight(1f))
+                            DiscoveryGenreMenu(discoveryGenres, discoveryGenre, { discoveryGenre = it }, Modifier.weight(1f))
                             TextAction(if (library.intent.active) "调整已选条件" else "选歌条件",
                                 { draftIntent = library.intent; scoreTab = false; showIntent = true }, Accent)
-                        }
-                    }
-                    itemsIndexed(discoveryGenres, key = { _, row -> "genre-grid-${row.first().label}" }) { index, row ->
-                        if (index == 0 && row.size == 3) {
-                            FeaturedGenres(row, discoveryGenre) { discoveryGenre = it }
-                        } else {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.tileGap)) {
-                                row.forEach { tile ->
-                                    GenreTile(tile, discoveryGenre == tile.label, { discoveryGenre = tile.label }, Modifier.weight(1f))
-                                }
-                                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
-                            }
                         }
                     }
                     val entries = browserEntries.orEmpty()
@@ -573,9 +564,11 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                     item { SearchField(search, { search = it }, "搜索歌曲、歌手") }
                     if(library.openedPlaylist==null && connected) item {
                         val coverage=if(library.favorites.isEmpty())0 else library.taggedCount*100/library.favorites.size
+                        val interaction = remember { MutableInteractionSource() }
                         Column(
                             Modifier.fillMaxWidth().heightIn(min = Space.touch)
-                                .clickable(role = Role.Button) { showCatalogueDetails = !showCatalogueDetails }
+                                .clickable(interaction, indication = null, role = Role.Button) { showCatalogueDetails = !showCatalogueDetails }
+                                .resonancePress(interaction)
                                 .semantics { stateDescription = if (showCatalogueDetails) "已展开" else "已收起" }
                                 .padding(vertical = Space.x3),
                             verticalArrangement = Arrangement.spacedBy(Space.x2)
@@ -651,9 +644,11 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                     item { SectionHeader("我的歌单", onPlaylists, "读取歌单") }
                     items(library.playlists, key = { "playlist-${it.id}" }) { playlist ->
                         val firstMid = playlistSeeds[playlist.id]
+                        val interaction = remember { MutableInteractionSource() }
                         Column {
                             Row(Modifier.fillMaxWidth().heightIn(min = Space.touch)
-                                .clickable(role = Role.Button) { requestedPlaylist = playlist; onPlaylist(playlist) }
+                                .clickable(interaction, indication = null, role = Role.Button) { requestedPlaylist = playlist; onPlaylist(playlist) }
+                                .resonancePress(interaction)
                                 .padding(vertical = Space.x2), verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(Space.x3)) {
                                 SandPlate(firstMid ?: "playlist:${playlist.id}", Modifier.size(Space.listCover))
@@ -692,6 +687,13 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                                     color = Muted, fontSize = TypeSize.secondary)
                             }
                             OutlineButton(if (connected) "管理账号 / 更新授权" else "连接 QQ 音乐", onLogin)
+                        }
+                        HorizontalDivider(color = SoftLine)
+                    }
+                    if (onNetEaseLogin != null) item {
+                        Column(Modifier.fillMaxWidth().padding(vertical = Space.x2), verticalArrangement = Arrangement.spacedBy(Space.x2)) {
+                            SectionHeader("网易云音乐", null, "")
+                            OutlineButton("登录 / 管理账号", onNetEaseLogin)
                         }
                         HorizontalDivider(color = SoftLine)
                     }
@@ -1003,6 +1005,36 @@ private fun GenreScoreSummary(scores: List<GenreScore>, ticker: FrameTicker, sys
             Switch(checked, onChange)
         }
         HorizontalDivider(color = SoftLine)
+    }
+}
+
+@Composable
+private fun DiscoveryGenreMenu(labels: List<String>, selected: String?, onSelect: (String?) -> Unit, modifier: Modifier) {
+    var expanded by remember { mutableStateOf(false) }
+    val trigger = remember { MutableInteractionSource() }
+    Box(modifier) {
+        Row(Modifier.heightIn(min = Space.touch).fillMaxWidth()
+            .clickable(trigger, indication = null, role = Role.Button) { expanded = true }
+            .resonancePress(trigger).padding(horizontal = Space.opticalInset),
+            horizontalArrangement = Arrangement.spacedBy(Space.x1), verticalAlignment = Alignment.CenterVertically) {
+            ResonanceText(selected?.let(::genreName) ?: "全部曲风", TypeSize.action, Modifier.weight(1f), ResonancePalette.sand)
+            Glyph(ResonanceGlyph.DOWN, Modifier.size(Space.x4), ResonancePalette.muted)
+        }
+        DropdownMenu(expanded, onDismissRequest = { expanded = false },
+            modifier = Modifier.heightIn(max = Space.legacyListHeight)) {
+            (listOf(null) + labels).forEach { label ->
+                val interaction = remember { MutableInteractionSource() }
+                DropdownMenuItem(
+                    text = {
+                        ResonanceText(label?.let(::genreName) ?: "全部曲风", TypeSize.body,
+                            color = if (label == selected) ResonancePalette.signal else ResonancePalette.sand, lines = 2)
+                    },
+                    onClick = { onSelect(label); expanded = false },
+                    modifier = Modifier.resonancePress(interaction),
+                    interactionSource = interaction
+                )
+            }
+        }
     }
 }
 
