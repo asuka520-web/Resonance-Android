@@ -9,6 +9,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
@@ -233,6 +234,23 @@ class ResonanceScreenTest {
         compose.onNodeWithText("单曲循环").performScrollTo().performClick()
         assertEquals(PlaybackMode.SINGLE.name,status.value.playbackMode)
         capture("player-modes-test-data")
+    }
+
+    @Test fun dockShortDragReturnsAndLongDragOpensThePlayer() {
+        val song = QqCatalogueTrack("pickup", "pickup", "手势展开测试歌曲", "歌手", "", 200000)
+        show(LibraryState(accountScope = "test", favorites = listOf(song)),
+            PlayerStatus(mid = song.mid, durationMs = song.durationMs))
+        val dock = compose.onAllNodesWithText(song.name).onLast()
+        dock.performTouchInput {
+            swipe(center, center - Offset(0f, 24.dp.toPx()), 580)
+        }
+        compose.onNodeWithContentDescription("上一首").assertDoesNotExist()
+        dock.performTouchInput {
+            swipe(center, center - Offset(0f, 200.dp.toPx()), 700)
+        }
+        compose.onNodeWithContentDescription("上一首").performScrollTo().assertIsDisplayed()
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.onNodeWithContentDescription("上一首").assertDoesNotExist()
     }
 
     @Test fun playerSharedArtworkOpensAndBackReturnsFocusToTheDock() {
@@ -525,6 +543,7 @@ class ResonanceScreenTest {
         capture(screenshot)
         for (label in listOf("Resonance", "QQ 音乐已连接", "相似推荐", "随心听", "调整这次选歌", "标签分数", "−66.0")) {
             val layouts = mutableListOf<TextLayoutResult>()
+            compose.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText(label))
             val node = compose.onNodeWithText(label, useUnmergedTree = true)
             node.performScrollTo().assertIsDisplayed()
             node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
@@ -536,7 +555,9 @@ class ResonanceScreenTest {
                     layout.getLineRight(line) <= layout.size.width + 1f)
             }
         }
-        compose.onNodeWithContentDescription("正在自动整理曲风 · 2 首已有资料").assertExists()
+        compose.onAllNodes(hasScrollAction()).onFirst()
+            .performScrollToNode(hasContentDescription("正在自动整理曲风 · 2 首已有资料"))
+        compose.onNodeWithContentDescription("正在自动整理曲风 · 2 首已有资料").assertIsDisplayed()
         compose.onNodeWithContentDescription("播放或暂停").assertIsDisplayed()
         compose.onNodeWithText("为你", useUnmergedTree = true).assertIsDisplayed()
         compose.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("播放这批"))

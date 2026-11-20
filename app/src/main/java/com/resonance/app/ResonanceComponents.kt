@@ -15,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -37,6 +38,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,8 +49,10 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.SolidColor
@@ -58,6 +62,10 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -81,6 +89,8 @@ import androidx.compose.ui.unit.sp
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 @Composable
 internal fun resonanceTextStyle(size: TextUnit, weight: FontWeight, english: Boolean) = TextStyle(
@@ -132,7 +142,7 @@ internal fun TopBar(connected: Boolean, ticker: FrameTicker, logo: MotionFloat, 
 
 
 @Composable
-internal fun ArtworkTransition(cover: ArtworkLoad, modifier: Modifier, shape: RoundedCornerShape,
+internal fun ArtworkTransition(cover: ArtworkLoad, modifier: Modifier, shape: Shape,
     dropShadow: Boolean = false, visible: Boolean = true) {
     val animate = LocalResonanceMotion.current && visible
     var lastReady by remember { mutableStateOf(cover.image) }
@@ -150,6 +160,25 @@ internal fun ArtworkTransition(cover: ArtworkLoad, modifier: Modifier, shape: Ro
     } else if (image != null) {
         Image(image, null, modifier.then(shadow).clip(shape), contentScale = ContentScale.Crop)
     }
+}
+
+@Composable
+internal fun NeedleArtwork(trackId: String, cover: ArtworkLoad, renderer: HomeSandRenderer, ticker: FrameTicker,
+    modifier: Modifier, shape: Shape, visible: Boolean, dropShadow: Boolean = false) {
+    val animate = visible && LocalResonanceMotion.current
+    var presented by remember { mutableStateOf(cover) }
+    var presentedId by remember { mutableStateOf(trackId) }
+    LaunchedEffect(trackId, cover, animate) {
+        if (animate && cover.pending && presented.image != null) return@LaunchedEffect
+        if (animate && presentedId != trackId && presented.image != null) {
+            withTimeoutOrNull(Motion.Needle.toLong()) {
+                snapshotFlow { renderer.artworkCueReached(trackId, ticker) }.first { it }
+            }
+        }
+        presentedId = trackId
+        presented = cover
+    }
+    ArtworkTransition(if (animate) presented else cover, modifier, shape, dropShadow, visible)
 }
 
 @Composable
@@ -338,6 +367,7 @@ internal fun Dock(
     tab: Int, song: QqCatalogueTrack?, player: PlayerStatus, clock: State<PlaybackClock>, cover: ImageBitmap?,
     ticker: FrameTicker, onTab: (Int) -> Unit, onExpand: () -> Unit, onMode: (String) -> Unit,
     onToggle: () -> Unit, onNext: () -> Unit,
+    pickup: PlayerPickup, onCoverBounds: (Rect) -> Unit,
     artworkSlot: @Composable (Boolean, @Composable () -> Unit) -> Unit = { _, content -> content() }
 ) {
     val shape = Corners.dock
@@ -357,11 +387,27 @@ internal fun Dock(
             }
             Row(Modifier.fillMaxWidth().height(Space.miniHeight).padding(horizontal = Space.x2), verticalAlignment = Alignment.CenterVertically) {
                 val openInteraction = remember { MutableInteractionSource() }
+                val pickupGesture = Modifier.pointerInput(song.mid, pickup) {
+                    val tracker = VelocityTracker()
+                    val travel = (viewConfiguration.touchSlop + size.height * 4f)
+                        .coerceAtMost(Space.pickupMaxDistance.toPx())
+                    detectVerticalDragGestures(
+                        onDragStart = { tracker.resetTracking() },
+                        onVerticalDrag = { change, distance ->
+                            tracker.addPosition(change.uptimeMillis, change.position)
+                            pickup.move(-distance / travel)
+                        },
+                        onDragEnd = { pickup.release(-tracker.calculateVelocity().y / density) },
+                        onDragCancel = { pickup.cancel() }
+                    )
+                }
                 Row(Modifier.weight(1f).heightIn(min = Space.touch)
+                    .then(pickupGesture)
                     .clickable(openInteraction, LocalIndication.current, onClickLabel = "展开播放器", onClick = onExpand)
                     .resonancePress(openInteraction),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
-                    Box(Modifier.size(Space.dockCover), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(Space.dockCover).onGloballyPositioned { onCoverBounds(it.boundsInRoot()) },
+                        contentAlignment = Alignment.Center) {
                         artworkSlot(true) {
                             if (cover == null) Box(Modifier.fillMaxSize().clip(Corners.dockCover)) {
                                 SandPlate(song.mid, Modifier.matchParentSize())

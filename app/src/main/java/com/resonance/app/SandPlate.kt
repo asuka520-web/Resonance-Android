@@ -20,6 +20,7 @@ import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -94,7 +95,7 @@ internal class SandAnimation(
     val renderer: HomeSandRenderer, val ticker: FrameTicker, val visible: Boolean, val playing: Boolean,
     val match: Float = Motion.DefaultMatch, val cold: Boolean = false, val systemMotion: Boolean = true,
     val onFirstPattern: () -> Unit = {}, val priority: Int = 1,
-    val liveClarity: Boolean = false, val sigmaDp: Float? = null
+    val liveClarity: Boolean = false, val sigmaDp: Float? = null, val needleOrigin: Offset? = null
 )
 
 private suspend fun loadSand(trackId: String, compact: Boolean): List<FloatArray> {
@@ -182,11 +183,16 @@ internal class HomeSandRenderer {
     private val clarity = MotionFloat(Motion.sigma(Motion.DefaultMatch))
     private val amplitude = MotionFloat(0f)
     private var playStartedAt by mutableStateOf(0L)
+    private var needleAt by mutableStateOf<Long?>(null)
+    private var wasPlaying = false
 
     fun strike(ticker: FrameTicker) { strikeAt = ticker.request(Motion.Strike, sand = true) }
 
-    fun update(playing: Boolean, match: Float, ticker: FrameTicker, animate: Boolean, liveClarity: Boolean, sigmaDp: Float?) {
+    fun update(playing: Boolean, match: Float, ticker: FrameTicker, animate: Boolean, liveClarity: Boolean,
+        sigmaDp: Float?, needle: Boolean) {
         if (playing && amplitude.value(ticker.time) == 0f) playStartedAt = ticker.time
+        if (needle && playing && animate && !wasPlaying) needleAt = ticker.request(Motion.Needle, sand = true)
+        wasPlaying = playing
         amplitude.update(if (playing && animate) 1f else 0f, Motion.SandRest, Motion.settle, ticker, animate, sand = true)
         clarity.update(sigmaDp ?: Motion.sigma(match), Motion.Clarity, Motion.responsive, ticker, animate && !liveClarity, sand = true)
     }
@@ -217,6 +223,10 @@ internal class HomeSandRenderer {
     }
 
     fun gatherStartedAt(trackId: String): Long? = pattern?.takeIf { it.trackId == trackId }?.began
+    fun artworkCueReached(trackId: String, ticker: FrameTicker): Boolean {
+        val target = pattern?.takeIf { it.trackId == trackId } ?: return false
+        return target.began?.let { ticker.age(it, sand = true) >= Motion.NeedleArtworkCue } ?: true
+    }
 
     fun finishGather(trackId: String, startedAt: Long): Boolean {
         val current = pattern ?: return false
@@ -229,10 +239,11 @@ internal class HomeSandRenderer {
         val current = pattern
         if (current?.began != null) pattern = current.copy(began = null)
         if (strikeAt != null) strikeAt = null
+        if (needleAt != null) needleAt = null
     }
 
     fun draw(canvas: android.graphics.Canvas, size: Size, density: Float, ticker: FrameTicker,
-        paints: Array<Paint>, animate: Boolean, limit: Int, live: Boolean) {
+        paints: Array<Paint>, animate: Boolean, limit: Int, live: Boolean, needleOrigin: Offset?, ring: Paint) {
         val current = pattern ?: return
         val begin = current.began
         val age = if (animate && begin != null) {
@@ -249,6 +260,19 @@ internal class HomeSandRenderer {
             amplitude.value(now) * audioAmplitude * density
         } else 0f
         val reduce = animate && ticker.reducedQuality
+        val waveStart = if (needleOrigin != null && animate) begin?.takeUnless { current.firstEntry } ?: needleAt else null
+        val wavePhase = waveStart?.let { Motion.progress(ticker.age(it, sand = true), Motion.Needle) } ?: 1f
+        val pulse = (1f - wavePhase) * (1f - wavePhase)
+        val originX = (needleOrigin?.x ?: .5f) * size.width
+        val originY = (needleOrigin?.y ?: .5f) * size.height
+        val reachX = maxOf(originX, size.width - originX)
+        val reachY = maxOf(originY, size.height - originY)
+        val ringRadius = sqrt(reachX * reachX + reachY * reachY) * Motion.settle.transform(wavePhase)
+        val band = (minOf(size.width, size.height) * .22f).coerceAtLeast(1f)
+        if (pulse > .005f) {
+            ring.alpha = (pulse * 190).toInt()
+            canvas.drawCircle(originX, originY, ringRadius, ring)
+        }
         lastSize = size
 
         for (layerIndex in buffers.indices) {
@@ -273,7 +297,12 @@ internal class HomeSandRenderer {
                     y = Motion.mix(from[point + 1], scatteredY, fall)
                     noise = 0f
                 } else if (age < Motion.TrackChange) {
-                    val delay = particles[offset + 5] * Motion.ParticleDelay
+                    val distance = if (needleOrigin != null && !current.firstEntry) {
+                        val dx = targetX - needleOrigin.x
+                        val dy = targetY - needleOrigin.y
+                        (.75f * sqrt(dx * dx + dy * dy) + .15f * particles[offset + 5]).coerceAtMost(1f)
+                    } else particles[offset + 5]
+                    val delay = distance * Motion.ParticleDelay
                     noise = Motion.settle.transform(Motion.progress(age - Motion.Scatter - delay, Motion.Gather))
                     x = Motion.mix(scatteredX, targetX, noise)
                     y = Motion.mix(scatteredY, targetY, noise)
@@ -282,10 +311,17 @@ internal class HomeSandRenderer {
                 val radialY = (y - .5f) * size.height
                 val radial = if (displacement != 0f)
                     displacement / sqrt(radialX * radialX + radialY * radialY).coerceAtLeast(1f) else 0f
+                val waveX = x * size.width - originX
+                val waveY = y * size.height - originY
+                val shift = if (pulse > .005f) {
+                    val distance = sqrt(waveX * waveX + waveY * waveY).coerceAtLeast(1f)
+                    val edge = (1f - abs(distance - ringRadius) / band).coerceAtLeast(0f)
+                    22f * density * pulse * edge * edge / distance
+                } else 0f
                 points[point] = x * size.width + particles[offset + 2] * sigma * noise +
-                    particles[offset + 9] * shake * noise + radialX * radial
+                    particles[offset + 9] * shake * noise + radialX * radial + waveX * shift
                 points[point + 1] = y * size.height + particles[offset + 3] * sigma * noise +
-                    particles[offset + 10] * shake * noise + radialY * radial
+                    particles[offset + 10] * shake * noise + radialY * radial + waveY * shift
             }
             canvas.drawPoints(points, 0, count * 2, paints[layerIndex])
         }
@@ -318,11 +354,11 @@ private fun AnimatedSandPlate(trackId: String, animation: SandAnimation, live: B
             if (cold && (animate || !systemMotion)) onFirstPattern()
         }
     }
-    LaunchedEffect(playing, match, animate, animation.liveClarity, animation.sigmaDp) {
+    LaunchedEffect(playing, match, animate, animation.liveClarity, animation.sigmaDp, animation.needleOrigin) {
         if (!animate) {
             renderer.settle()
         }
-        renderer.update(playing, match, ticker, animate, animation.liveClarity, animation.sigmaDp)
+        renderer.update(playing, match, ticker, animate, animation.liveClarity, animation.sigmaDp, animation.needleOrigin != null)
     }
     val gatherStarted = renderer.gatherStartedAt(trackId)
     LaunchedEffect(trackId, gatherStarted, live, animate, view) {
@@ -334,6 +370,11 @@ private fun AnimatedSandPlate(trackId: String, animation: SandAnimation, live: B
         val paints = arrayOf(sandPaint(Space.mainGrain.toPx(), (255 * opacity).toInt()),
             sandPaint(Space.largeGrain.toPx(), (255 * opacity).toInt()), sandPaint(Space.looseGrain.toPx(), (89 * opacity).toInt()))
         val scale = density
+        val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = ResonancePalette.signal.toArgb()
+            style = Paint.Style.STROKE
+            strokeWidth = Space.focus.toPx()
+        }
         onDrawBehind {
             val limit = granted()
             if (limit == 0) return@onDrawBehind
@@ -341,13 +382,15 @@ private fun AnimatedSandPlate(trackId: String, animation: SandAnimation, live: B
                 val startedAt = System.nanoTime()
                 Trace.beginSection("ResonanceSandPlate")
                 try {
-                    renderer.draw(drawContext.canvas.nativeCanvas, size, scale, ticker, paints, true, limit, live)
+                    renderer.draw(drawContext.canvas.nativeCanvas, size, scale, ticker, paints, true, limit, live,
+                        animation.needleOrigin, ring)
                 } finally {
                     Trace.endSection()
                 }
                 ticker.reportFrame(System.nanoTime() - startedAt)
             } else {
-                renderer.draw(drawContext.canvas.nativeCanvas, size, scale, ticker, paints, false, limit, live)
+                renderer.draw(drawContext.canvas.nativeCanvas, size, scale, ticker, paints, false, limit, live,
+                    animation.needleOrigin, ring)
             }
         }
     }) {}

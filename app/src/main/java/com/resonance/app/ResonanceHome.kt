@@ -1,16 +1,20 @@
 package com.resonance.app
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -25,50 +29,67 @@ internal fun PlayerStatus.withoutClock() = copy(positionMs = 0, listeningTimeMs 
 internal fun HomePlate(
     song: QqCatalogueTrack?, cover: ArtworkLoad, renderer: HomeSandRenderer, ticker: FrameTicker,
     visible: Boolean, cold: Boolean, systemMotion: Boolean, playing: Boolean, current: Boolean,
-    onPlayPause: () -> Unit, onExpand: () -> Unit, onFirstPattern: () -> Unit
+    onPlayPause: () -> Unit, onExpand: () -> Unit, onSearch: () -> Unit, onFirstPattern: () -> Unit,
+    artworkSlot: @Composable (@Composable () -> Unit) -> Unit = { it() }
 ) {
     val shape = Corners.plate
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val height = (maxWidth * .65f).coerceIn(Space.heroMinHeight, Space.heroMaxHeight)
-        Box(Modifier.fillMaxWidth().height(height).clip(shape)
-            .background(ResonancePalette.plate).border(Space.thin, ResonancePalette.line, shape)) {
-            ArtworkTransition(cover, Modifier.matchParentSize(), shape, visible = visible)
-            SandPlate(song?.mid.orEmpty(), Modifier.matchParentSize(), opacity = if (cover.image == null) .9f else .58f,
-                animated = true, background = Color.Transparent, animation = SandAnimation(renderer, ticker, visible,
-                    playing = playing, cold = cold, systemMotion = systemMotion, onFirstPattern = onFirstPattern,
-                    priority = 2, sigmaDp = Motion.HomeSigmaDp))
-            if (song != null) {
-                Box(Modifier.matchParentSize().background(Brush.verticalGradient(
-                    0f to ResonancePalette.ink.copy(alpha = .68f),
-                    .38f to Color.Transparent,
-                    1f to ResonancePalette.ink.copy(alpha = .94f)
-                )))
-                if (current) {
-                    Row(Modifier.align(Alignment.TopStart).padding(start = Space.x4, top = Space.x3)
-                        .clip(Corners.tag).background(ResonancePalette.ink.copy(alpha = .88f))
-                        .padding(horizontal = Space.x2, vertical = Space.x1),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.x1)) {
-                        Box(Modifier.size(Space.statusDot).background(ResonancePalette.signal, CircleShape))
-                        ResonanceText(if (playing) "正在播放" else "已暂停", TypeSize.caption, color = ResonancePalette.artTitle)
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.x2)) {
+        if (song != null) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
+                    Box(Modifier.size(Space.statusDot).background(ResonancePalette.signal, CircleShape))
+                    ResonanceText(if (!current) "待播放" else if (playing) "正在播放" else "已暂停", TypeSize.secondary,
+                        color = ResonancePalette.muted)
+                }
+                IconAction("搜索歌曲", onSearch, ResonancePalette.muted) {
+                    Glyph(ResonanceGlyph.SEARCH, Modifier.size(Space.x5), ResonancePalette.muted)
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.x3)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.x1)) {
+                    Text(song.name, style = resonanceTextStyle(TypeSize.deckTitle, FontWeight.Bold, english = true),
+                        color = ResonancePalette.artTitle, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    ResonanceText(song.artist, TypeSize.body, color = ResonancePalette.muted, english = true)
+                }
+                IconAction(if (current && playing) "暂停当前歌曲" else "播放当前歌曲",
+                    onPlayPause, ResonancePalette.sand, filled = true, diameter = Space.touch) {
+                    PlayPauseMorph(current && playing, Modifier.size(Space.x6))
+                }
+            }
+        }
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val height = (maxWidth * .55f).coerceIn(Space.heroMinHeight, Space.heroMaxHeight)
+            Row(Modifier.fillMaxWidth().height(height).clip(shape).background(ResonancePalette.plate)
+                .border(Space.thin, ResonancePalette.line, shape)) {
+                if (song != null) Box(Modifier.weight(1.24f).fillMaxHeight().background(ResonancePalette.surface)) {
+                    artworkSlot {
+                        NeedleArtwork(song.mid, cover, renderer, ticker, Modifier.fillMaxSize(), RectangleShape,
+                            visible = visible)
                     }
-                    Box(Modifier.align(Alignment.TopEnd).padding(top = Space.x1, end = Space.x2)) {
-                        IconAction("展开完整播放器", onExpand, ResonancePalette.ink.copy(alpha = .88f), filled = true) {
+                }
+                Box(Modifier.weight(1f).fillMaxHeight().background(Brush.radialGradient(
+                    listOf(ResonancePalette.fieldCenter, ResonancePalette.fieldOuter)))) {
+                    Canvas(Modifier.matchParentSize()) {
+                        val rule = ResonancePalette.signal.copy(alpha = .20f)
+                        repeat(4) { step ->
+                            drawCircle(rule, size.minDimension * (.13f + .13f * step), style = Stroke(Space.thin.toPx()))
+                        }
+                        drawLine(rule, Offset(center.x, 0f), Offset(center.x, size.height), Space.thin.toPx())
+                        drawLine(rule, Offset(0f, center.y), Offset(size.width, center.y), Space.thin.toPx())
+                    }
+                    SandPlate(song?.mid.orEmpty(), Modifier.matchParentSize(), opacity = .76f, animated = true,
+                        background = Color.Transparent, animation = SandAnimation(renderer, ticker, visible,
+                            playing = playing, cold = cold, systemMotion = systemMotion, onFirstPattern = onFirstPattern,
+                            priority = 2, sigmaDp = Motion.HomeSigmaDp, needleOrigin = Offset(.91f, .04f)))
+                    if (current) Box(Modifier.align(Alignment.TopEnd).padding(Space.x1)) {
+                        IconAction("展开完整播放器", onExpand, ResonancePalette.ink, filled = true) {
                             Glyph(ResonanceGlyph.EXPAND, Modifier.size(Space.x5), ResonancePalette.artTitle)
                         }
                     }
-                }
-                Row(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(Space.x4),
-                    horizontalArrangement = Arrangement.spacedBy(Space.x2), verticalAlignment = Alignment.Bottom) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.x1)) {
-                        Text(song.name, style = resonanceTextStyle(TypeSize.song, FontWeight.ExtraBold, english = true),
-                            color = ResonancePalette.artTitle, lineHeight = TypeSize.songLine, maxLines = 2,
-                            overflow = TextOverflow.Ellipsis)
-                        ResonanceText(song.artist, TypeSize.body, color = ResonancePalette.artTitle, english = true)
-                    }
-                    IconAction(if (current && playing) "暂停当前歌曲" else "播放当前歌曲",
-                        onPlayPause, ResonancePalette.sand, filled = true) {
-                        PlayPauseMorph(current && playing, Modifier.size(Space.x6))
-                    }
+                    ResonanceText("共振波面", TypeSize.caption,
+                        Modifier.align(Alignment.BottomEnd).padding(end = Space.x3, bottom = Space.x3),
+                        color = ResonancePalette.sand)
                 }
             }
         }
@@ -85,14 +106,10 @@ internal fun HomeHero(
             ResonanceText(if (connected) "收藏同步后可听相似推荐" else "从你的收藏开始", TypeSize.lead,
                 lines = 2, weight = FontWeight.Bold)
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
-            if (!connected) PrimaryButton("连接我的 QQ 音乐", onLogin, Modifier.weight(1f))
-            else {
-                if (song != null) OutlineButton("相似推荐", onSimilar, Modifier.weight(1f))
-                OutlineButton("随心听", onSurprise, Modifier.weight(1f))
-            }
-        }
-        if (connected) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        if (!connected) PrimaryButton("连接我的 QQ 音乐", onLogin, Modifier.fillMaxWidth())
+        else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            if (song != null) TextAction("相似推荐", onSimilar, ResonancePalette.sand)
+            TextAction("随心听", onSurprise, ResonancePalette.muted)
             TextAction("调整这次选歌", onIntent, ResonancePalette.muted)
         }
     }

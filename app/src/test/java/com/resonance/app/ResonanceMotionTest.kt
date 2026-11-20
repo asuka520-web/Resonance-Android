@@ -7,6 +7,14 @@ import org.junit.Test
 
 class ResonanceMotionTest {
     @Test
+    fun pickupRequiresEnoughTravelOrAnIntentionalUpwardFling() {
+        assertFalse(Motion.pickupCommits(.10f, 900f))
+        assertFalse(Motion.pickupCommits(.30f, -900f))
+        assertTrue(Motion.pickupCommits(.45f, 0f))
+        assertTrue(Motion.pickupCommits(.22f, 900f))
+    }
+
+    @Test
     fun slowFramesMustBeConsecutiveBeforeReducingDensity() {
         val ticker = FrameTicker()
         val slow = Motion.SlowFrameNanos + 1

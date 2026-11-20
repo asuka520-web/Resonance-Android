@@ -48,6 +48,8 @@ internal object ResonancePalette {
     val muted = Color(0xFFA9B6C3)
     val warm = Color(0xFFE4A18B)
     val artTitle = Color(0xFFFAFCFE)
+    val fieldCenter = Color(0xFF233D4B)
+    val fieldOuter = Color(0xFF111E28)
 }
 
 internal object Space {
@@ -63,6 +65,7 @@ internal object Space {
     val dockCover = 42.dp
     val heroMinHeight = 174.dp
     val heroMaxHeight = 235.dp
+    val pickupMaxDistance = 300.dp
     val playerCoverMax = 252.dp
     val weekTileWidth = 44.dp
     val catalogueDot = 3.dp
@@ -118,6 +121,7 @@ internal object TypeSize {
     val panelTitle = 24.sp
     val songLine = 28.08.sp
     val largeNumber = 32.sp
+    val deckTitle = 36.sp
     val companionNumber = 54.sp
     val wordmarkTracking = 1.5.sp
     val logoTracking = (-.02).em

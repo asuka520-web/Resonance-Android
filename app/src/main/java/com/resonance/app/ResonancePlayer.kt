@@ -6,6 +6,7 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
@@ -24,25 +25,82 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
 
+internal class PlayerPickup {
+    var active by mutableStateOf(false)
+        private set
+    var fraction by mutableFloatStateOf(0f)
+    var settleOpen by mutableStateOf<Boolean?>(null)
+        private set
+    var origin by mutableStateOf<Rect?>(null)
+    var destination by mutableStateOf<Rect?>(null)
+
+    fun move(amount: Float) {
+        if (settleOpen != null || (!active && amount <= 0f)) return
+        active = true
+        fraction = (fraction + amount).coerceIn(0f, 1f)
+    }
+
+    fun release(upwardVelocityDp: Float) {
+        if (active) settleOpen = Motion.pickupCommits(fraction, upwardVelocityDp)
+    }
+
+    fun cancel() {
+        if (active) settleOpen = false
+    }
+
+    fun close() {
+        active = true
+        fraction = 1f
+        settleOpen = false
+    }
+
+    fun reset() {
+        active = false
+        fraction = 0f
+        settleOpen = null
+    }
+}
+
+@Composable
+internal fun PickupArtwork(image: ImageBitmap, pickup: PlayerPickup, host: Offset) {
+    val from = pickup.origin ?: return
+    val to = pickup.destination ?: return
+    if (from.isEmpty || to.isEmpty) return
+    val fraction = pickup.fraction
+    val density = LocalDensity.current
+    val width = with(density) { Motion.mix(from.width, to.width, fraction).toDp() }
+    val height = with(density) { Motion.mix(from.height, to.height, fraction).toDp() }
+    Image(image, null, Modifier.offset {
+        IntOffset((Motion.mix(from.left, to.left, fraction) - host.x).roundToInt(),
+            (Motion.mix(from.top, to.top, fraction) - host.y).roundToInt())
+    }.size(width, height).clip(Corners.card), contentScale = ContentScale.Crop)
+}
+
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun SharedTransitionScope.playerArtwork(
-    song: String, plate: Boolean, visible: AnimatedVisibilityScope
+    song: String, plate: Boolean, visible: AnimatedVisibilityScope, source: String = "dock"
 ): Modifier = Modifier.sharedElement(
-    rememberSharedContentState(if (plate) "resonance-board:$song" else "resonance-cover:$song"),
+    rememberSharedContentState(if (plate) "resonance-board:$song" else "resonance-cover:$source:$song"),
     animatedVisibilityScope = visible,
     boundsTransform = { _, _ -> tween(Motion.SharedArtwork, easing = Motion.responsive) }
 )
@@ -53,7 +111,8 @@ internal fun NowPlaying(
     plateTransition: Modifier, coverTransition: Modifier, labels: Set<String>, genreStatus: String,
     notice: DirectionNotice?, onClose: () -> Unit, onPlayPause: () -> Unit, onPrevious: () -> Unit, onNext: () -> Unit,
     onSeek: (Float) -> Unit, onRetry: () -> Unit, onSimilar: () -> Unit, onMore: () -> Unit, onLess: () -> Unit,
-    onHistory: () -> Unit, favorite: @Composable () -> Unit, queueControls: @Composable () -> Unit
+    onHistory: () -> Unit, favorite: @Composable () -> Unit, queueControls: @Composable () -> Unit,
+    pickup: PlayerPickup? = null, showLiftedCover: Boolean = false
 ) {
     BackHandler(open, onBack = onClose)
     val motion = LocalResonanceMotion.current && open
@@ -68,7 +127,9 @@ internal fun NowPlaying(
     val dragLimit = with(LocalDensity.current) { (Space.x6 * 3).toPx() }
     val scroll = rememberScrollState()
 
-    Box(Modifier.fillMaxSize()) {
+    val duringPickup = pickup?.active == true && !open
+    Box(Modifier.fillMaxSize().graphicsLayer { alpha = if (duringPickup) pickup?.fraction ?: 0f else 1f }
+        .then(if (duringPickup) Modifier.clearAndSetSemantics {} else Modifier)) {
         Box(Modifier.matchParentSize().background(ResonancePalette.ink.copy(alpha = .72f))
             .clickable(onClick = onClose).semantics { contentDescription = "关闭播放器" })
         Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(.94f)
@@ -95,11 +156,16 @@ internal fun NowPlaying(
                     BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(1.12f)
                         .onGloballyPositioned { boardVisible = !it.boundsInWindow().isEmpty }, contentAlignment = Alignment.Center) {
                         SandPlate(song.mid, Modifier.matchParentSize().then(plateTransition), animated = true,
+                            background = ResonancePalette.fieldOuter,
                             animation = SandAnimation(renderer, ticker, boardActive, player.playing, cold = firstPattern,
-                                onFirstPattern = { firstPattern = false }, priority = 3))
-                        ArtworkTransition(cover, Modifier.size((maxWidth * .68f).coerceAtMost(Space.playerCoverMax))
-                            .then(coverTransition), Corners.card,
-                            dropShadow = true, visible = boardVisible)
+                                onFirstPattern = { firstPattern = false }, priority = 3,
+                                needleOrigin = Offset(.5f, .94f)))
+                        val artworkSize = (maxWidth * .68f).coerceAtMost(Space.playerCoverMax)
+                        Box(Modifier.size(artworkSize).onGloballyPositioned { pickup?.destination = it.boundsInRoot() }
+                            .then(coverTransition).graphicsLayer { alpha = if (showLiftedCover) 0f else 1f }) {
+                            NeedleArtwork(song.mid, cover, renderer, ticker, Modifier.matchParentSize(), Corners.card,
+                                dropShadow = true, visible = boardVisible)
+                        }
                     }
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = Space.touch),

@@ -53,6 +53,15 @@ internal object Motion {
     const val ParticleDelay = 300
     const val TrackChange = Scatter + Gather + ParticleDelay
     const val Cover = 200
+    const val Needle = 1040
+    const val NeedleArtworkCue = 160
+    const val BatchMove = 320
+    const val BatchEnter = 200
+    const val PickupOpen = 260
+    const val PickupReturn = 180
+    const val PickupThreshold = .43f
+    const val PickupFlingDp = 650f
+    const val PickupMinFlingTravel = .15f
     const val CoverInitialScale = .96f
     const val NominalFrameMs = 1000f / 60f
     const val GraphTrackBlend = 3000
@@ -98,6 +107,9 @@ internal object Motion {
     val responsive = CubicBezierEasing(.2f, 0f, 0f, 1f)
     val release = CubicBezierEasing(.2f, 1.25f, .5f, 1f)
     val linear = LinearEasing
+
+    fun pickupCommits(fraction: Float, upwardVelocityDp: Float): Boolean =
+        fraction >= PickupThreshold || fraction >= PickupMinFlingTravel && upwardVelocityDp >= PickupFlingDp
 
     fun progress(ageMs: Float, duration: Int): Float = (ageMs / duration).coerceIn(0f, 1f)
     fun mix(start: Float, end: Float, fraction: Float): Float = start + (end - start) * fraction

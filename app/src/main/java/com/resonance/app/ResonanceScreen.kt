@@ -20,6 +20,7 @@ import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.snap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -49,12 +50,15 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -280,7 +284,31 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
     val motionEnvironment = rememberMotionEnvironment()
     val motionEnabled = motionEnvironment.enabled
     val sharedArtwork = motionEnabled && LocalSharedArtwork.current
-    val controlsActive = !expandedPlayer && detailSong == null && !showIntent && !showScoreReset && feedbackSong == null && !showDirectionHistory
+    val pickup = remember(current?.mid) { PlayerPickup() }
+    val pickupVisible = motionEnabled && pickup.active && current != null
+    val liftedCover = pickupVisible && seedArtwork != null && pickup.origin?.isEmpty == false && pickup.destination?.isEmpty == false
+    var openedWithPickup by remember { mutableStateOf(false) }
+    var openedFromHome by remember { mutableStateOf(false) }
+    var playerHost by remember { mutableStateOf(Offset.Zero) }
+    fun closeNowPlaying() {
+        if (openedWithPickup && expandedPlayer && motionEnabled && current != null) pickup.close()
+        else pickup.reset()
+        expandedPlayer = false
+    }
+    LaunchedEffect(pickup, pickup.settleOpen, motionEnabled) {
+        val open = pickup.settleOpen ?: return@LaunchedEffect
+        if (motionEnabled) animate(pickup.fraction, if (open) 1f else 0f,
+            animationSpec = tween(if (open) Motion.PickupOpen else Motion.PickupReturn, easing = Motion.settle)) { value, _ ->
+            pickup.fraction = value
+        }
+        if (open && current != null) {
+            openedWithPickup = motionEnabled
+            openedFromHome = false
+            expandedPlayer = true
+        }
+        pickup.reset()
+    }
+    val controlsActive = !expandedPlayer && !pickupVisible && detailSong == null && !showIntent && !showScoreReset && feedbackSong == null && !showDirectionHistory
     val homeActive = tab == 0 && controlsActive
     val ticker = ResonanceEngine.clock
     SideEffect { ResonanceEngine.updatePlayback(player.playing, player.mid) }
@@ -355,17 +383,23 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
     ResonanceTheme { CompositionLocalProvider(LocalResonanceMotion provides motionEnabled) {
         SharedTransitionLayout(Modifier.fillMaxSize()) {
         val shared = this
-        Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().onGloballyPositioned { playerHost = it.positionInRoot() }) {
         Scaffold(modifier = if (expandedPlayer) Modifier.clearAndSetSemantics {} else Modifier,
             containerColor=ResonancePalette.ink,bottomBar={
-            Dock(tab, current, player, clock, seedArtwork, ticker, { tab = it }, { expandedPlayer = true },
-                onPlaybackMode, onToggle, onNext) { plate, content ->
-                if (sharedArtwork && current != null) {
+            Dock(tab, current, player, clock, seedArtwork, ticker, { tab = it }, {
+                pickup.reset()
+                openedFromHome = false
+                openedWithPickup = false
+                expandedPlayer = true
+            }, onPlaybackMode, onToggle, onNext, pickup, { pickup.origin = it }) { plate, content ->
+                if (sharedArtwork && current != null && !openedWithPickup && !openedFromHome && !pickupVisible) {
                     AnimatedVisibility(!expandedPlayer, enter = EnterTransition.None, exit = ExitTransition.None) {
                         val art = shared.playerArtwork(current.mid, plate, this)
                         Box(Modifier.fillMaxSize().then(art)) { content() }
                     }
-                } else if (!expandedPlayer) content()
+                } else if (!expandedPlayer) Box(Modifier.fillMaxSize().graphicsLayer {
+                    alpha = if (liftedCover && !plate) 0f else 1f
+                }) { content() }
             }
         }) {padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
@@ -401,7 +435,22 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                         HomePlate(seed, seedCover, renderer, ticker, animatePlate, coldPlate,
                             motionEnvironment.systemEnabled, player.playing, current != null,
                             onPlayPause = { if (current != null) onToggle() else seed?.let(onPlay) },
-                            onExpand = { expandedPlayer = true }, onFirstPattern = { coldPlate = false })
+                            onExpand = {
+                                pickup.reset()
+                                openedFromHome = true
+                                openedWithPickup = false
+                                expandedPlayer = true
+                            }, onSearch = { tab = 1 }, onFirstPattern = { coldPlate = false },
+                            artworkSlot = { artwork ->
+                                if (sharedArtwork && current != null && seedArtwork != null) {
+                                    AnimatedVisibility(!expandedPlayer || !openedFromHome,
+                                        enter = EnterTransition.None, exit = ExitTransition.None) {
+                                        Box(Modifier.fillMaxSize().then(shared.playerArtwork(current.mid, false, this, "home"))) {
+                                            artwork()
+                                        }
+                                    }
+                                } else artwork()
+                            })
                     }
                     item {
                         HomeHero(connected, seed, onLogin, refreshSimilar, onSurprise) {
@@ -419,7 +468,7 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                     if(recommendations!=null) {
                         val refreshMid = seed?.mid ?: recommendations.picks.firstOrNull()?.track?.mediaId?.removePrefix("qq:")
                         item {
-                            SectionHeader("为你推荐", refreshMid?.let { mid -> { onRefreshRecommendation(mid) } }, "换一批",
+                            SectionHeader("接下来听", refreshMid?.let { mid -> { onRefreshRecommendation(mid) } }, "换一批",
                                 if(recommendations.picks.isNotEmpty()) ({onPlayRecommendation(null)}) else null)
                         }
                         item {
@@ -427,13 +476,20 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                                 showRecommendationReason = !showRecommendationReason
                             }
                         }
-                        // Keep the artwork slot mounted during batch replacement so both covers can blend.
-                        itemsIndexed(recommendations.picks, key = { index, _ -> "resonance-pick-$index" }) { _, pick ->
-                            tracksByMid[pick.track.mediaId.removePrefix("qq:")]?.let {song ->
-                                TrackRow(song, pick.reason, song.mid==player.mid,
-                                    {onPlayRecommendation(song.mid)}, {detailSong=song}, unfamiliar = pick.unfamiliar)
-                                if(showRecommendationReason && pick.reason.isNotBlank()) {
-                                    Text(pick.reason,color=ResonancePalette.signal,fontSize=TypeSize.secondary)
+                        items(recommendations.picks.distinctBy { it.track.mediaId },
+                            key = { "resonance-pick-${it.track.mediaId}" }) { pick ->
+                            tracksByMid[pick.track.mediaId.removePrefix("qq:")]?.let { song ->
+                                val transition = if (motionEnabled) Modifier.animateItem(
+                                    fadeInSpec = tween(Motion.BatchEnter),
+                                    placementSpec = tween(Motion.BatchMove, easing = Motion.responsive),
+                                    fadeOutSpec = tween(Motion.BatchExit)
+                                ) else Modifier
+                                Column(transition) {
+                                    TrackRow(song, pick.reason, song.mid == player.mid,
+                                        { onPlayRecommendation(song.mid) }, { detailSong = song }, unfamiliar = pick.unfamiliar)
+                                    if (showRecommendationReason && pick.reason.isNotBlank()) {
+                                        Text(pick.reason, color = ResonancePalette.signal, fontSize = TypeSize.secondary)
+                                    }
                                 }
                             }
                         }
@@ -702,15 +758,18 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
             }
         }
         }
-        AnimatedVisibility(expandedPlayer && current != null,
-            enter = if (motionEnabled) fadeIn(tween(Motion.SharedArtwork, easing = Motion.responsive)) else EnterTransition.None,
-            exit = if (motionEnabled) fadeOut(tween(Motion.SharedArtwork, easing = Motion.responsive)) else ExitTransition.None) {
+        AnimatedVisibility((expandedPlayer || pickupVisible) && current != null,
+            enter = if (motionEnabled && !pickupVisible) fadeIn(tween(Motion.SharedArtwork, easing = Motion.responsive)) else EnterTransition.None,
+            exit = if (motionEnabled && !openedWithPickup && !pickupVisible)
+                fadeOut(tween(Motion.SharedArtwork, easing = Motion.responsive)) else ExitTransition.None) {
             current?.let { song ->
-                val plate = if (sharedArtwork) shared.playerArtwork(song.mid, true, this) else Modifier
-                val cover = if (sharedArtwork && seedCover.image != null) shared.playerArtwork(song.mid, false, this) else Modifier
+                val useShared = sharedArtwork && !pickupVisible && !openedWithPickup
+                val plate = if (useShared && !openedFromHome) shared.playerArtwork(song.mid, true, this) else Modifier
+                val cover = if (useShared && seedCover.image != null)
+                    shared.playerArtwork(song.mid, false, this, if (openedFromHome) "home" else "dock") else Modifier
                 NowPlaying(expandedPlayer, song, seedCover, player, clock, plate, cover, library.genres[song.mid]?.labels.orEmpty(),
                     GenreLookupPolicy.description(library.genres[song.mid]), notice,
-                    onClose = { expandedPlayer = false }, onPlayPause = onToggle, onPrevious = onPrevious, onNext = onNext,
+                    onClose = { closeNowPlaying() }, onPlayPause = onToggle, onPrevious = onPrevious, onNext = onNext,
                     onSeek = onSeek, onRetry = { onPlay(song) },
                     onSimilar = { QqLibrary.similar(song.mid); expandedPlayer = false; tab = 0 },
                     onMore = { openFeedback(song, true) }, onLess = { openFeedback(song, false) },
@@ -724,9 +783,10 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                             }
                         }
                         PlaybackRangeChoices(player.playbackRange, onPlaybackRange)
-                    })
+                    }, pickup = pickup.takeIf { pickupVisible || openedWithPickup }, showLiftedCover = liftedCover)
             }
         }
+        if (liftedCover) PickupArtwork(seedArtwork, pickup, playerHost)
         detailSong?.let {song -> SheetScaffold(onDismissRequest={detailSong=null},
             sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
             Box {Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(Space.x6).navigationBarsPadding(),verticalArrangement=Arrangement.spacedBy(Space.x3)) {
