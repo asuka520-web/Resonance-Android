@@ -7,6 +7,7 @@ import android.net.Uri
 import android.provider.Settings
 import android.util.LruCache
 import android.os.SystemClock
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.slideInVertically
@@ -266,6 +267,7 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
         expandedPlayer=false;detailSong=null
     }
     var showDirectionHistory by remember {mutableStateOf(false)}
+    var showGenreAnalysis by rememberSaveable { mutableStateOf(false) }
     var previewNotice by remember {mutableStateOf<DirectionNotice?>(null)}
     var draftIntent by remember {mutableStateOf(ListeningIntent())}
     var showRecommendationReason by remember {mutableStateOf(false)}
@@ -283,6 +285,10 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
     val seedCover = rememberArtworkLoad(seed)
     val seedArtwork = seedCover.image
     val connected=library.accountScope.isNotBlank()
+    val genreAnalysisVisible = tab == 3 && showGenreAnalysis
+    BackHandler(genreAnalysisVisible && detailSong == null && !expandedPlayer && feedbackSong == null) {
+        showGenreAnalysis = false
+    }
     val motionEnvironment = rememberMotionEnvironment()
     val motionEnabled = motionEnvironment.enabled
     val sharedArtwork = motionEnabled && LocalSharedArtwork.current
@@ -392,7 +398,7 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
         Box(Modifier.fillMaxSize().onGloballyPositioned { playerHost = it.positionInRoot() }) {
         Scaffold(modifier = if (expandedPlayer) Modifier.clearAndSetSemantics {} else Modifier,
             containerColor=ResonancePalette.ink,bottomBar={
-            Dock(tab, current, player, clock, seedArtwork, ticker, { tab = it }, {
+            Dock(tab, current, player, clock, seedArtwork, ticker, { showGenreAnalysis = false; tab = it }, {
                 pickup.reset()
                 openedFromHome = false
                 openedWithPickup = false
@@ -409,6 +415,12 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
             }
         }) {padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
+            if (genreAnalysisVisible) {
+                GenreAnalysisPage(library, player, modelGenresEnabled, onChange = {
+                    modelGenresEnabled = it
+                    settings.edit().putBoolean(ModelGenres.SETTING, it).apply()
+                }, onBack = { showGenreAnalysis = false }, onPlay = onPlay, onDetails = { detailSong = it })
+            } else {
             val pageOffset = with(LocalDensity.current) { Motion.SecondaryOffsetDp.dp.roundToPx() }
             AnimatedContent(PageContent(tab, library), label = "page",
                 contentKey = { it.tab to it.library.openedPlaylist?.id?.takeIf { _ -> it.tab == 2 } },
@@ -661,6 +673,7 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                         }
                     }
                 } else {
+                    item { OutlineButton("曲风分析", { showGenreAnalysis = true }, Modifier.fillMaxWidth()) }
                     item {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.x2),
                             verticalAlignment = Alignment.CenterVertically) {
@@ -737,16 +750,6 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                         HorizontalDivider(Modifier.padding(top = Space.x2), color = SoftLine)
                     }
                     item {SettingSwitch("在线补全曲库资料","QQ 标签优先，缺失资料由补充来源自动查询。",supplements){supplements=it;settings.edit().putBoolean("catalogue_external_tags",it).apply()}}
-                    item {
-                        SettingSwitch("自动识别曲风", "优先分析曲风较少的歌曲。首次下载约 4 MB 的模型，歌曲在手机上分析。", modelGenresEnabled) {
-                            modelGenresEnabled = it
-                            settings.edit().putBoolean(ModelGenres.SETTING, it).apply()
-                        }
-                        if (modelGenresEnabled) {
-                            Text(player.modelGenreStatus.ifBlank { "播放歌曲后准备模型，结果显示在歌曲详情。" },
-                                color = Muted, fontSize = TypeSize.caption)
-                        }
-                    }
                     if (BuildConfig.PLAYBACK_AUDIO_PROBE) item {
                         SettingSwitch("声音分析试验", "播放时测量两段音频的数字电平，只在本机显示结果。", audioProbeEnabled) {
                             audioProbeEnabled = it
@@ -784,6 +787,7 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                     if (connected) item { TextAction("退出 QQ 音乐账号", onLogout, Accent) }
                     item {Text("RESONANCE · 共鸣 ${BuildConfig.VERSION_NAME}",color=Muted,fontSize=TypeSize.caption,letterSpacing=TypeSize.wordmarkTracking,modifier=Modifier.padding(vertical=Space.sectionGap))}
                 }
+            }
             }
             }
             DirectionChangeBanner(notice, Modifier.align(Alignment.BottomCenter).padding(bottom = Space.scoreTickHeight))
@@ -835,22 +839,6 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                 library.genres[song.mid]?.providers()?.forEach {(provider,labels)->
                     Text((if(provider=="qq-song-detail")"QQ 单曲资料：" else "严格匹配的补充曲库：")+labels.sorted().joinToString(" · "){genreName(it)},color=Muted,fontSize=TypeSize.caption,lineHeight=TypeSize.lead)
                 }
-                val modelRevision by ModelGenres.revision.collectAsState()
-                val modelLabels = remember(library.accountScope, song, modelRevision) {
-                    ModelGenres.read(context, library.accountScope, song)
-                }
-                if (modelLabels.isNotEmpty()) {
-                    Text("曲风 · 模型推测", fontSize = TypeSize.track)
-                    Text(modelLabels.joinToString(" · "), color = Accent, fontSize = TypeSize.body)
-                    Text("根据已播放的两个片段推测，供参考。", color = Muted, fontSize = TypeSize.caption)
-                    TextAction("移除此首的模型标签", {
-                        ModelGenres.dismiss(context, library.accountScope, song)
-                    }, Muted)
-                } else if (modelGenresEnabled && ModelGenres.hasLegacyEmpty(context, library.accountScope, song)) {
-                    TextAction("重新分析这首的曲风", {
-                        ModelGenres.retryLegacy(context, library.accountScope, song)
-                    }, Accent)
-                }
                 library.genres[song.mid]?.descriptors?.takeIf {it.isNotEmpty()}?.let {labels ->
                     Text("听感线索 · 曲库标注",fontSize=TypeSize.track)
                     Text(labels.sorted().joinToString(" · "){descriptorName(it)},color=Accent,fontSize=TypeSize.body)
@@ -858,6 +846,8 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                 }
                 Text(library.genres[song.mid]?.enrichmentNote?.ifBlank {"仅展示曲库实际提供的标签，缺少资料不会猜测情绪。"}?:"缺少曲风不影响播放，惊喜抽取不会为歌曲添加标签。",color=Muted,fontSize=TypeSize.caption,lineHeight=TypeSize.lead)
                 OutlineButton("补充这首的标签", { onEnrich(song.mid) }, enabled = supplements && connected && !library.enriching)
+                HorizontalDivider(color = SoftLine)
+                GenreAnalysisDetail(song, library.accountScope, player, library.genres[song.mid]?.labels.orEmpty().size >= 2) { onPlay(song) }
                 Row(horizontalArrangement=Arrangement.spacedBy(Space.scoreTickHeight)) {
                     TextAction("多来这种", { openFeedback(song, true) }, Accent)
                     TextAction("暂时少放", { openFeedback(song, false) }, Muted)
@@ -1044,7 +1034,7 @@ private fun GenreScoreSummary(scores: List<GenreScore>, ticker: FrameTicker, sys
     }
 }
 
-@Composable private fun SettingSwitch(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+@Composable internal fun SettingSwitch(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Column {
         Row(Modifier.fillMaxWidth().heightIn(min = Space.touch).padding(vertical = Space.x2),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.x3)) {

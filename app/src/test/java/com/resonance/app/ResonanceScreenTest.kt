@@ -176,6 +176,23 @@ class ResonanceScreenTest {
         compose.onNodeWithText("15秒").performClick()
         compose.runOnIdle {assertEquals(15,compose.activity.getSharedPreferences("resonance_settings",0).getInt("qq_direction_cooldown_seconds",-1))}
     }
+    @Test fun genreAnalysisPageOpensAndAllowsManualAnalysisWithAutomaticOff() {
+        val song = QqCatalogueTrack("model-page", "model-page", "待分析歌曲", "测试歌手", "专辑", 200_000)
+        var played: QqCatalogueTrack? = null
+        show(LibraryState(accountScope = "test", favorites = listOf(song))) { played = it }
+        compose.onNodeWithText("我的", useUnmergedTree = true).performClick()
+        compose.onNodeWithText("曲风分析").performClick()
+        compose.onNodeWithText("自动识别曲风").assertExists()
+        compose.onNodeWithText("歌曲与结果").assertExists()
+        compose.onNodeWithContentDescription("待分析歌曲的歌曲详情").performClick()
+        compose.onNodeWithText("重新分析曲风").performScrollTo().assertIsEnabled().performClick()
+        compose.onNodeWithText("从头播放").performScrollTo().performClick()
+        compose.runOnIdle {
+            assertEquals(song, played)
+            assertTrue(ModelGenres.read(compose.activity, "test", song).requested)
+            assertFalse(compose.activity.getSharedPreferences("resonance_settings", 0).getBoolean(ModelGenres.SETTING, false))
+        }
+    }
     @Test fun retryAndSupplementButtonsRemainAvailableDuringInitialAnalysis() {
         val song=QqCatalogueTrack("pending","pending","等待中的歌","歌手","专辑",200000)
         var secondary=false

@@ -11,10 +11,15 @@ import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
+import java.util.UUID
 
 internal enum class ModelGenreAssessment { AGREEMENT, INSUFFICIENT, DIFFERENT }
 
 internal data class ModelGenreResult(val assessment: ModelGenreAssessment, val labels: List<String> = emptyList())
+
+internal data class ModelGenreWork(val plan: GenreSamplePlan, val manual: String? = null)
+
+internal data class ModelGenreEntry(val labels: List<String>, val status: String, val requested: Boolean)
 
 internal object ModelGenres {
     const val SETTING = "playback_model_genres"
@@ -46,34 +51,71 @@ internal object ModelGenres {
     private fun entry(context: Context, scope: String, song: QqCatalogueTrack) =
         preferences(context).getString(key(scope, song), null)
 
-    fun samplePlan(context: Context, scope: String, song: QqCatalogueTrack, durationMs: Long): GenreSamplePlan? =
-        when (val entry = entry(context, scope, song)) {
-            null -> GenreSamplePlan.PRIMARY.takeIf { durationMs >= it.endMs }
-            else -> GenreSamplePlan.LATER.takeIf { entry.startsWith(RETRY_PREFIX) && durationMs >= it.endMs }
+    private fun labels(entry: String?): List<String> =
+        entry.orEmpty().takeUnless { it.startsWith('@') }.orEmpty().split('|').filter { it.isNotBlank() }
+
+    private fun requestKey(scope: String, song: QqCatalogueTrack) = key(scope, song) + "/manual"
+
+    fun manualRequest(context: Context, scope: String, song: QqCatalogueTrack): String? =
+        preferences(context).getString(requestKey(scope, song), null)
+
+    fun sampleWork(context: Context, scope: String, song: QqCatalogueTrack, durationMs: Long,
+                   auto: Boolean): ModelGenreWork? {
+        val manual = manualRequest(context, scope, song)
+        val saved = entry(context, scope, song)
+        val plan = when {
+            manual != null -> if (manual.endsWith(":LATER")) GenreSamplePlan.LATER else GenreSamplePlan.PRIMARY
+            !auto -> return null
+            saved == null -> GenreSamplePlan.PRIMARY
+            saved.startsWith(RETRY_PREFIX) -> GenreSamplePlan.LATER
+            else -> return null
         }
+        return ModelGenreWork(plan, manual).takeIf { durationMs >= plan.endMs }
+    }
 
-    fun hasLegacyEmpty(context: Context, scope: String, song: QqCatalogueTrack) = entry(context, scope, song) == ""
+    fun read(context: Context, scope: String, song: QqCatalogueTrack, hasCatalogueGenres: Boolean = false): ModelGenreEntry {
+        val saved = entry(context, scope, song)
+        val manual = manualRequest(context, scope, song)
+        val tags = labels(saved)
+        val status = when {
+            manual?.endsWith(":LATER") == true -> "待分析后段，播放至 1 分 35 秒"
+            manual != null -> "已安排，从头播放时分析"
+            tags.isNotEmpty() -> "有模型结果"
+            saved == DISMISSED -> "已移除模型标签"
+            saved?.startsWith(RETRY_PREFIX) == true -> "待分析后段"
+            saved?.endsWith(ModelGenreAssessment.DIFFERENT.name) == true -> "片段曲风不同"
+            saved != null -> "暂无模型结果"
+            song.durationMs in 1 until GenreSamplePlan.PRIMARY.endMs -> "时长不足"
+            hasCatalogueGenres -> "可手动分析"
+            else -> "待分析"
+        }
+        return ModelGenreEntry(tags, status, manual != null)
+    }
 
-    fun read(context: Context, scope: String, song: QqCatalogueTrack): List<String> =
-        entry(context, scope, song).orEmpty().takeUnless { it.startsWith('@') }.orEmpty().split('|').filter { it.isNotBlank() }
-
-    private fun save(context: Context, scope: String, song: QqCatalogueTrack, value: String?) {
-        preferences(context).edit().putString(key(scope, song), value).apply()
+    fun request(context: Context, scope: String, song: QqCatalogueTrack) {
+        if (manualRequest(context, scope, song) != null) return
+        preferences(context).edit().putString(requestKey(scope, song), "${UUID.randomUUID()}:PRIMARY").apply()
         changes.value++
     }
 
-    fun record(context: Context, scope: String, song: QqCatalogueTrack, result: ModelGenreResult, retryLater: Boolean) {
+    fun record(context: Context, scope: String, song: QqCatalogueTrack, work: ModelGenreWork,
+               result: ModelGenreResult, retryLater: Boolean): Boolean {
+        val manualKey = requestKey(scope, song)
+        val prefs = preferences(context)
+        if (prefs.getString(manualKey, null) != work.manual || entry(context, scope, song) == DISMISSED && work.manual == null) return false
+        val saved = entry(context, scope, song)
         val value = if (result.labels.isNotEmpty()) result.labels.joinToString("|")
+            else if (work.manual != null && labels(saved).isNotEmpty()) saved
             else (if (retryLater) RETRY_PREFIX else FINISHED_PREFIX) + result.assessment.name
-        save(context, scope, song, value)
+        val nextManual = work.manual?.substringBefore(':')?.takeIf { retryLater }?.plus(":LATER")
+        prefs.edit().putString(key(scope, song), value).putString(manualKey, nextManual).apply()
+        changes.value++
+        return true
     }
 
-    fun dismiss(context: Context, scope: String, song: QqCatalogueTrack) = save(context, scope, song, DISMISSED)
-
-    fun retryLegacy(context: Context, scope: String, song: QqCatalogueTrack) {
-        if (!hasLegacyEmpty(context, scope, song)) return
-        save(context, scope, song,
-            if (song.durationMs >= GenreSamplePlan.LATER.endMs) RETRY_PREFIX + ModelGenreAssessment.INSUFFICIENT.name else null)
+    fun dismiss(context: Context, scope: String, song: QqCatalogueTrack) {
+        preferences(context).edit().putString(key(scope, song), DISMISSED).remove(requestKey(scope, song)).apply()
+        changes.value++
     }
 
     fun ensureModel(filesDir: File): File {

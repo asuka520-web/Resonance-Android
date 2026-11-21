@@ -99,21 +99,44 @@ class PlaybackAudioProbeTest {
 
 @RunWith(RobolectricTestRunner::class)
 class ModelGenreRetryTest {
-    @Test fun retriesLegacyEmptyOnlyOnRequestAndKeepsDismissals() {
+    @Test fun manualRequestWorksForAnOldEmptyResultWithAutomaticAnalysisOff() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val song = QqCatalogueTrack("sample", "", "Song", "Artist", "Album", 150_000)
         val scope = "account"
         val fingerprint = listOf(song.name, song.artist, song.album, song.durationMs).hashCode()
         context.getSharedPreferences("resonance_model_genres", Context.MODE_PRIVATE).edit()
             .putString("yamnet-v1/$scope/${song.mid}/$fingerprint", "").apply()
-        assertNull(ModelGenres.samplePlan(context, scope, song, song.durationMs))
-        ModelGenres.retryLegacy(context, scope, song)
-        assertEquals(GenreSamplePlan.LATER, ModelGenres.samplePlan(context, scope, song, song.durationMs))
-        assertNull(ModelGenres.samplePlan(context, scope, song, 90_000))
-        ModelGenres.record(context, scope, song, ModelGenreResult(ModelGenreAssessment.INSUFFICIENT), retryLater = false)
-        assertNull(ModelGenres.samplePlan(context, scope, song, song.durationMs))
+        assertNull(ModelGenres.sampleWork(context, scope, song, song.durationMs, auto = true))
+        ModelGenres.request(context, scope, song)
+        val first = requireNotNull(ModelGenres.sampleWork(context, scope, song, song.durationMs, auto = false))
+        assertEquals(GenreSamplePlan.PRIMARY, first.plan)
+        val unclear = ModelGenreResult(ModelGenreAssessment.INSUFFICIENT)
+        assertEquals(true, ModelGenres.record(context, scope, song, first, unclear, retryLater = true))
+        assertNull(ModelGenres.sampleWork(context, scope, song, 90_000, auto = false))
+        val later = requireNotNull(ModelGenres.sampleWork(context, scope, song, song.durationMs, auto = false))
+        assertEquals(GenreSamplePlan.LATER, later.plan)
+        assertEquals(true, ModelGenres.record(context, scope, song, later, unclear, retryLater = false))
+        assertNull(ModelGenres.sampleWork(context, scope, song, song.durationMs, auto = true))
+    }
+
+    @Test fun failedManualReanalysisPreservesLabelsAndDismissalCancelsPendingWork() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val song = QqCatalogueTrack("saved", "", "Song", "Artist", "Album", 150_000)
+        val scope = "account"
+        val initial = requireNotNull(ModelGenres.sampleWork(context, scope, song, song.durationMs, auto = true))
+        val labeled = ModelGenreResult(ModelGenreAssessment.AGREEMENT, listOf("电子"))
+        ModelGenres.record(context, scope, song, initial, labeled, retryLater = false)
+        ModelGenres.request(context, scope, song)
+        assertEquals(listOf("电子"), ModelGenres.read(context, scope, song).labels)
+        assertEquals(false, ModelGenres.record(context, scope, song, initial, labeled, retryLater = false))
+        val requested = requireNotNull(ModelGenres.sampleWork(context, scope, song, song.durationMs, auto = false))
+        val different = ModelGenreResult(ModelGenreAssessment.DIFFERENT)
+        assertEquals(true, ModelGenres.record(context, scope, song, requested, different, retryLater = false))
+        assertEquals(listOf("电子"), ModelGenres.read(context, scope, song).labels)
+        ModelGenres.request(context, scope, song)
+        val pending = requireNotNull(ModelGenres.sampleWork(context, scope, song, song.durationMs, auto = false))
         ModelGenres.dismiss(context, scope, song)
-        ModelGenres.retryLegacy(context, scope, song)
-        assertNull(ModelGenres.samplePlan(context, scope, song, song.durationMs))
+        assertEquals(false, ModelGenres.record(context, scope, song, pending, labeled, retryLater = false))
+        assertNull(ModelGenres.sampleWork(context, scope, song, song.durationMs, auto = true))
     }
 }
