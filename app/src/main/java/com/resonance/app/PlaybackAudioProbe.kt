@@ -10,9 +10,17 @@ data class PlaybackAudioMeasurement(val firstDbfs: Int? = null, val secondDbfs: 
 
 internal data class PlaybackGenreAudio(val first: ShortArray, val second: ShortArray)
 
+internal enum class GenreSamplePlan(val firstStart: Long, val secondStart: Long) {
+    PRIMARY(15, 40),
+    LATER(60, 80);
+
+    val endMs get() = (secondStart + 15) * 1_000
+}
+
 /** Measures two windows of PCM sent to output and optionally samples them in memory. */
 internal class PlaybackAudioProbe {
-    private data class Request(val generation: Long, val active: Boolean, val capture: Boolean = false)
+    private data class Request(val generation: Long, val active: Boolean, val capture: Boolean = false,
+                               val plan: GenreSamplePlan = GenreSamplePlan.PRIMARY)
     private data class Result(val generation: Long, val values: PlaybackAudioMeasurement)
     private data class Captured(val generation: Long, val audio: PlaybackGenreAudio)
 
@@ -87,16 +95,17 @@ internal class PlaybackAudioProbe {
     }
 
     // These methods are called on the player application thread.
-    fun updateActive(active: Boolean, capture: Boolean = request.capture) {
+    fun updateActive(active: Boolean, capture: Boolean = request.capture, plan: GenreSamplePlan = request.plan) {
         val old = request
-        if (old.capture != capture) {
-            request = Request(old.generation + 1, active, capture)
+        if (old.capture != capture || old.plan != plan) {
+            request = Request(old.generation + 1, active, capture, plan)
             captured = null
         } else if (old.active != active) request = old.copy(active = active)
     }
 
     fun newPlayback() {
-        request = Request(request.generation + 1, false, request.capture)
+        val old = request
+        request = old.copy(generation = old.generation + 1, active = false)
         captured = null
     }
 
@@ -111,11 +120,12 @@ internal class PlaybackAudioProbe {
 
     fun consume(buffer: ByteBuffer, from: Int, until: Int, positionUs: Long, rate: Int, channels: Int) {
         val current = request
-        if (!current.active || positionUs !in 14_000_000L until 55_000_000L || from >= until) return
+        val plan = current.plan
+        if (!current.active || positionUs !in (plan.firstStart - 1) * 1_000_000 until plan.endMs * 1_000 || from >= until) return
         if (measuredGeneration != current.generation) {
             measuredGeneration = current.generation
-            first = Window(15)
-            second = Window(40)
+            first = Window(plan.firstStart)
+            second = Window(plan.secondStart)
             values = PlaybackAudioMeasurement()
         }
         if (values.complete) return

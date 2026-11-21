@@ -94,6 +94,7 @@ class ResonancePlaybackService : MediaSessionService() {
     private val audioProbe = PlaybackAudioProbe()
     private val playbackSettings by lazy { getSharedPreferences("resonance_settings", MODE_PRIVATE) }
     private var audioProbeEnabled = false
+    private var audioProbePlan = GenreSamplePlan.PRIMARY
     private val modelScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var modelJob: Job? = null
     private var genreModel: File? = null
@@ -159,11 +160,14 @@ class ResonancePlaybackService : MediaSessionService() {
         val song = if (enabled && mid.isNotBlank()) QqLibrary.track(mid) else null
         val scope = historyScope
         val model = genreModel
-        val canAnalyze = song != null && scope.isNotBlank() && QqLibrary.state.accountScope == scope &&
-            QqLibrary.state.genres[mid]?.labels.orEmpty().size < 2 && !ModelGenres.analyzed(this, scope, song)
-        val canSample = QqSessionManager.active != null && player.isPlaying && !excerpt && player.duration >= 55_000
-        val ready = model != null && canAnalyze
-        audioProbe.updateActive(canSample && (diagnostics || ready), ready)
+        val duration = player.duration
+        val plan = song?.takeIf {
+            scope.isNotBlank() && QqLibrary.state.accountScope == scope && QqLibrary.state.genres[mid]?.labels.orEmpty().size < 2
+        }?.let { ModelGenres.samplePlan(this, scope, it, duration) }
+        val canSample = QqSessionManager.active != null && player.isPlaying && !excerpt && duration >= GenreSamplePlan.PRIMARY.endMs
+        val ready = model != null && plan != null
+        audioProbePlan = if (ready) plan else GenreSamplePlan.PRIMARY
+        audioProbe.updateActive(canSample && (diagnostics || ready), ready, audioProbePlan)
 
         if (!enabled) {
             modelGenreStatus = ""
@@ -185,11 +189,11 @@ class ResonancePlaybackService : MediaSessionService() {
             return
         }
         if (modelGenreStatus.isBlank()) modelGenreStatus = "声音模型已就绪"
-        if (!canAnalyze || player.currentPosition < 55_000) return
+        if (song == null || plan == null || player.currentPosition < plan.endMs) return
         val clips = audioProbe.takeGenreAudio() ?: return
         modelGenreStatus = "正在识别这首歌的曲风…"
         modelJob = modelScope.launch {
-            val labels = withContext(Dispatchers.Default) {
+            val result = withContext(Dispatchers.Default) {
                 try {
                     ModelGenres.classify(model, clips)
                 } catch (_: RuntimeException) {
@@ -200,11 +204,16 @@ class ResonancePlaybackService : MediaSessionService() {
             }
             if (!playbackSettings.getBoolean(ModelGenres.SETTING, false) || QqLibrary.state.accountScope != scope ||
                 QqSessionManager.active?.let { CatalogueStore.scope(it.userId) } != scope) return@launch
-            if (labels == null) {
+            if (result == null) {
                 modelGenreStatus = "这台手机暂时无法使用声音模型"
             } else {
-                ModelGenres.save(this@ResonancePlaybackService, scope, song, labels)
-                modelGenreStatus = if (labels.isEmpty()) "这首歌的两段曲风判断不一致" else "已补充模型推测，可在歌曲详情查看"
+                val retry = result.labels.isEmpty() && plan == GenreSamplePlan.PRIMARY && duration >= GenreSamplePlan.LATER.endMs
+                ModelGenres.record(this@ResonancePlaybackService, scope, song, result, retry)
+                modelGenreStatus = when (result.assessment) {
+                    ModelGenreAssessment.AGREEMENT -> "已补充模型推测，可在歌曲详情查看"
+                    ModelGenreAssessment.INSUFFICIENT -> "片段的曲风线索不足"
+                    ModelGenreAssessment.DIFFERENT -> "两个片段给出了不同曲风"
+                } + if (retry) " · 播到后段会再分析一次" else ""
             }
         }
     }
@@ -268,7 +277,7 @@ class ResonancePlaybackService : MediaSessionService() {
                 player.currentPosition.coerceAtLeast(0), QqLibrary.track(mid)?.durationMs ?: 0, tracker.fastSkips, message, excerpt, player.playWhenReady,
                 directionNotice?.takeIf {SystemClock.elapsedRealtime()-it.createdAt<3500},
                 PlaybackMode.fromPlayer(player.repeatMode,player.shuffleModeEnabled).name,player.mediaItemCount,selectedRange().name,listeningTime.totalMs,
-                if (audioProbeEnabled) audioProbe.snapshot() else null, modelGenreStatus))
+                if (audioProbeEnabled && audioProbePlan == GenreSamplePlan.PRIMARY) audioProbe.snapshot() else null, modelGenreStatus))
             handler.postDelayed(this, 1000)
         }
     }
@@ -313,6 +322,7 @@ class ResonancePlaybackService : MediaSessionService() {
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 audioProbe.newPlayback()
+                if (genreModel != null && modelJob?.isActive != true) modelGenreStatus = "声音模型已就绪"
                 val mid = mediaItem?.mediaId?.removePrefix("qq:")
                 if(mid!=null)preferenceShuffle.visit(mid,previousRequested && reason==Player.MEDIA_ITEM_TRANSITION_REASON_SEEK)
                 previousRequested=false

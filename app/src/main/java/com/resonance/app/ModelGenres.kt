@@ -12,12 +12,19 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
 
+internal enum class ModelGenreAssessment { AGREEMENT, INSUFFICIENT, DIFFERENT }
+
+internal data class ModelGenreResult(val assessment: ModelGenreAssessment, val labels: List<String> = emptyList())
+
 internal object ModelGenres {
     const val SETTING = "playback_model_genres"
     const val RATE = 16_000
     private const val INPUT_SIZE = 15_600
     private const val CLASSES = 521
     private const val VERSION = "yamnet-v1"
+    private const val RETRY_PREFIX = "@retry/"
+    private const val FINISHED_PREFIX = "@finished/"
+    private const val DISMISSED = "@dismissed"
     private const val MODEL_SIZE = 4_126_810
     private const val SHA256 = "4d8b4a53282dc83ef04e3e7dbc4fbc98082e34e44ed798e16c3a0cdd4c584faf"
     private const val MODEL_URL =
@@ -36,13 +43,37 @@ internal object ModelGenres {
     private fun preferences(context: Context) = context.getSharedPreferences("resonance_model_genres", Context.MODE_PRIVATE)
     private fun key(scope: String, song: QqCatalogueTrack) = "$VERSION/$scope/${song.mid}/${listOf(song.name, song.artist, song.album, song.durationMs).hashCode()}"
 
-    fun analyzed(context: Context, scope: String, song: QqCatalogueTrack) = preferences(context).contains(key(scope, song))
-    fun read(context: Context, scope: String, song: QqCatalogueTrack): List<String> =
-        preferences(context).getString(key(scope, song), "").orEmpty().split('|').filter { it.isNotBlank() }
+    private fun entry(context: Context, scope: String, song: QqCatalogueTrack) =
+        preferences(context).getString(key(scope, song), null)
 
-    fun save(context: Context, scope: String, song: QqCatalogueTrack, labels: List<String>) {
-        preferences(context).edit().putString(key(scope, song), labels.joinToString("|")).apply()
+    fun samplePlan(context: Context, scope: String, song: QqCatalogueTrack, durationMs: Long): GenreSamplePlan? =
+        when (val entry = entry(context, scope, song)) {
+            null -> GenreSamplePlan.PRIMARY.takeIf { durationMs >= it.endMs }
+            else -> GenreSamplePlan.LATER.takeIf { entry.startsWith(RETRY_PREFIX) && durationMs >= it.endMs }
+        }
+
+    fun hasLegacyEmpty(context: Context, scope: String, song: QqCatalogueTrack) = entry(context, scope, song) == ""
+
+    fun read(context: Context, scope: String, song: QqCatalogueTrack): List<String> =
+        entry(context, scope, song).orEmpty().takeUnless { it.startsWith('@') }.orEmpty().split('|').filter { it.isNotBlank() }
+
+    private fun save(context: Context, scope: String, song: QqCatalogueTrack, value: String?) {
+        preferences(context).edit().putString(key(scope, song), value).apply()
         changes.value++
+    }
+
+    fun record(context: Context, scope: String, song: QqCatalogueTrack, result: ModelGenreResult, retryLater: Boolean) {
+        val value = if (result.labels.isNotEmpty()) result.labels.joinToString("|")
+            else (if (retryLater) RETRY_PREFIX else FINISHED_PREFIX) + result.assessment.name
+        save(context, scope, song, value)
+    }
+
+    fun dismiss(context: Context, scope: String, song: QqCatalogueTrack) = save(context, scope, song, DISMISSED)
+
+    fun retryLegacy(context: Context, scope: String, song: QqCatalogueTrack) {
+        if (!hasLegacyEmpty(context, scope, song)) return
+        save(context, scope, song,
+            if (song.durationMs >= GenreSamplePlan.LATER.endMs) RETRY_PREFIX + ModelGenreAssessment.INSUFFICIENT.name else null)
     }
 
     fun ensureModel(filesDir: File): File {
@@ -84,7 +115,7 @@ internal object ModelGenres {
         }
     }
 
-    fun classify(file: File, audio: PlaybackGenreAudio): List<String> =
+    fun classify(file: File, audio: PlaybackGenreAudio): ModelGenreResult =
         Interpreter(file, Interpreter.Options().setNumThreads(1)).use { model ->
             val input = model.getInputTensor(0)
             val output = model.getOutputTensor(0)
@@ -101,16 +132,19 @@ internal object ModelGenres {
                 model.run(waveform, scores)
                 FloatArray(CLASSES) { scores.getFloat(it * 4) }
             }
-            agreedLabels(windows(audio.first), windows(audio.second))
+            assess(windows(audio.first), windows(audio.second))
         }
 
-    internal fun agreedLabels(first: List<FloatArray>, second: List<FloatArray>): List<String> {
+    internal fun assess(first: List<FloatArray>, second: List<FloatArray>): ModelGenreResult {
         fun scores(windows: List<FloatArray>) = genreIndices.mapNotNull { (index, label) ->
             val matches = windows.filter { it[132] >= .5f && it[index] >= .4f }
             if (matches.size < 3) null else label to matches.map { it[index] }.average()
         }.toMap()
         val a = scores(first)
         val b = scores(second)
-        return a.keys.intersect(b.keys).sortedByDescending { minOf(a.getValue(it), b.getValue(it)) }.take(3)
+        if (a.isEmpty() || b.isEmpty()) return ModelGenreResult(ModelGenreAssessment.INSUFFICIENT)
+        val shared = a.keys.intersect(b.keys).sortedByDescending { minOf(a.getValue(it), b.getValue(it)) }.take(3)
+        return if (shared.isEmpty()) ModelGenreResult(ModelGenreAssessment.DIFFERENT)
+            else ModelGenreResult(ModelGenreAssessment.AGREEMENT, shared)
     }
 }

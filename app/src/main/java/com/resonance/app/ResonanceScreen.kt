@@ -844,8 +844,12 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                     Text(modelLabels.joinToString(" · "), color = Accent, fontSize = TypeSize.body)
                     Text("根据已播放的两个片段推测，供参考。", color = Muted, fontSize = TypeSize.caption)
                     TextAction("移除此首的模型标签", {
-                        ModelGenres.save(context, library.accountScope, song, emptyList())
+                        ModelGenres.dismiss(context, library.accountScope, song)
                     }, Muted)
+                } else if (modelGenresEnabled && ModelGenres.hasLegacyEmpty(context, library.accountScope, song)) {
+                    TextAction("重新分析这首的曲风", {
+                        ModelGenres.retryLegacy(context, library.accountScope, song)
+                    }, Accent)
                 }
                 library.genres[song.mid]?.descriptors?.takeIf {it.isNotEmpty()}?.let {labels ->
                     Text("听感线索 · 曲库标注",fontSize=TypeSize.track)

@@ -1,8 +1,12 @@
 package com.resonance.app
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -74,8 +78,42 @@ class PlaybackAudioProbeTest {
             genres.forEach { this[it] = .8f }
         } }
         val first = windows(221, 211)
-        assertEquals(listOf("R&B"), ModelGenres.agreedLabels(first, windows(221, 224)))
-        assertEquals(emptyList<String>(), ModelGenres.agreedLabels(first, windows(224)))
-        assertEquals(emptyList<String>(), ModelGenres.agreedLabels(first, windows(221).take(2)))
+        assertEquals(ModelGenreResult(ModelGenreAssessment.AGREEMENT, listOf("R&B")), ModelGenres.assess(first, windows(221, 224)))
+        assertEquals(ModelGenreResult(ModelGenreAssessment.DIFFERENT), ModelGenres.assess(first, windows(224)))
+        assertEquals(ModelGenreResult(ModelGenreAssessment.INSUFFICIENT), ModelGenres.assess(first, windows(221).take(2)))
+        assertEquals(ModelGenreResult(ModelGenreAssessment.INSUFFICIENT), ModelGenres.assess(emptyList(), emptyList()))
+    }
+
+    @Test fun laterPassUsesOnlyTheLaterWindows() {
+        val probe = PlaybackAudioProbe()
+        probe.updateActive(true, capture = true)
+        send(probe, 15..54)
+        probe.updateActive(true, capture = true, plan = GenreSamplePlan.LATER)
+        assertNull(probe.takeGenreAudio())
+        send(probe, 60..92)
+        assertNull(probe.takeGenreAudio())
+        send(probe, 93..94)
+        assertEquals(240_000, requireNotNull(probe.takeGenreAudio()).second.size)
+    }
+}
+
+@RunWith(RobolectricTestRunner::class)
+class ModelGenreRetryTest {
+    @Test fun retriesLegacyEmptyOnlyOnRequestAndKeepsDismissals() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val song = QqCatalogueTrack("sample", "", "Song", "Artist", "Album", 150_000)
+        val scope = "account"
+        val fingerprint = listOf(song.name, song.artist, song.album, song.durationMs).hashCode()
+        context.getSharedPreferences("resonance_model_genres", Context.MODE_PRIVATE).edit()
+            .putString("yamnet-v1/$scope/${song.mid}/$fingerprint", "").apply()
+        assertNull(ModelGenres.samplePlan(context, scope, song, song.durationMs))
+        ModelGenres.retryLegacy(context, scope, song)
+        assertEquals(GenreSamplePlan.LATER, ModelGenres.samplePlan(context, scope, song, song.durationMs))
+        assertNull(ModelGenres.samplePlan(context, scope, song, 90_000))
+        ModelGenres.record(context, scope, song, ModelGenreResult(ModelGenreAssessment.INSUFFICIENT), retryLater = false)
+        assertNull(ModelGenres.samplePlan(context, scope, song, song.durationMs))
+        ModelGenres.dismiss(context, scope, song)
+        ModelGenres.retryLegacy(context, scope, song)
+        assertNull(ModelGenres.samplePlan(context, scope, song, song.durationMs))
     }
 }
