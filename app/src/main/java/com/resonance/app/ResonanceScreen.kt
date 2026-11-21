@@ -272,6 +272,8 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
     var showConnectionDetails by remember {mutableStateOf(false)}
     var autoDirection by remember {mutableStateOf(settings.getBoolean("qq_auto_direction",true))}
     var supplements by remember {mutableStateOf(settings.getBoolean("catalogue_external_tags",true))}
+    var audioProbeEnabled by remember { mutableStateOf(settings.getBoolean(PlaybackAudioProbe.SETTING, false)) }
+    var modelGenresEnabled by remember { mutableStateOf(settings.getBoolean(ModelGenres.SETTING, false)) }
     var surpriseEnabled by remember {mutableStateOf(settings.getBoolean("qq_surprise_enabled",true))}
     val tracksByMid = remember(library.favorites, library.discoveries) { library.allTracks.associateBy { it.mid } }
     val current = tracksByMid[player.mid]
@@ -735,6 +737,34 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                         HorizontalDivider(Modifier.padding(top = Space.x2), color = SoftLine)
                     }
                     item {SettingSwitch("在线补全曲库资料","QQ 标签优先，缺失资料由补充来源自动查询。",supplements){supplements=it;settings.edit().putBoolean("catalogue_external_tags",it).apply()}}
+                    item {
+                        SettingSwitch("自动识别曲风", "优先分析曲风较少的歌曲。首次下载约 4 MB 的模型，歌曲在手机上分析。", modelGenresEnabled) {
+                            modelGenresEnabled = it
+                            settings.edit().putBoolean(ModelGenres.SETTING, it).apply()
+                        }
+                        if (modelGenresEnabled) {
+                            Text(player.modelGenreStatus.ifBlank { "播放歌曲后准备模型，结果显示在歌曲详情。" },
+                                color = Muted, fontSize = TypeSize.caption)
+                        }
+                    }
+                    if (BuildConfig.PLAYBACK_AUDIO_PROBE) item {
+                        SettingSwitch("声音分析试验", "播放时测量两段音频的数字电平，只在本机显示结果。", audioProbeEnabled) {
+                            audioProbeEnabled = it
+                            settings.edit().putBoolean(PlaybackAudioProbe.SETTING, it).apply()
+                        }
+                        if (audioProbeEnabled) {
+                            val reading = player.audioMeasurement
+                            val first = reading?.firstDbfs?.let { "$it dBFS" } ?: "待测量"
+                            val second = reading?.secondDbfs?.let { "$it dBFS" } ?: "待测量"
+                            val detail = when {
+                                player.mid.isBlank() -> "播放一首完整歌曲开始测量"
+                                player.excerpt -> "试听片段不参与测量"
+                                player.durationMs in 1..54_999 -> "换一首至少 55 秒的歌曲试试"
+                                else -> "15–30 秒 · $first\n40–55 秒 · $second"
+                            }
+                            Text(detail, color = Muted, fontSize = TypeSize.caption)
+                        }
+                    }
                     item {SettingSwitch("推荐里加入惊喜一首","每批最多一首随机未知曲风；收藏里的歌仍算熟悉。",surpriseEnabled){surpriseEnabled=it;settings.edit().putBoolean("qq_surprise_enabled",it).apply();QqLibrary.refreshRecommendationPreferences()}}
                     item { TextAction("预览切歌提示", {
                         previewNotice = DirectionNotice(System.nanoTime(), SystemClock.elapsedRealtime(), emptySet(), "INFO", "提示预览 · 实际切歌后会显示目标歌名")
@@ -804,6 +834,18 @@ internal fun ResonanceScreen(library:LibraryState, player:PlayerStatus, onLogin:
                     ?: GenreLookupPolicy.description(library.genres[song.mid]),color=Accent,fontSize=TypeSize.body,lineHeight=TypeSize.panelTitle)
                 library.genres[song.mid]?.providers()?.forEach {(provider,labels)->
                     Text((if(provider=="qq-song-detail")"QQ 单曲资料：" else "严格匹配的补充曲库：")+labels.sorted().joinToString(" · "){genreName(it)},color=Muted,fontSize=TypeSize.caption,lineHeight=TypeSize.lead)
+                }
+                val modelRevision by ModelGenres.revision.collectAsState()
+                val modelLabels = remember(library.accountScope, song, modelRevision) {
+                    ModelGenres.read(context, library.accountScope, song)
+                }
+                if (modelLabels.isNotEmpty()) {
+                    Text("曲风 · 模型推测", fontSize = TypeSize.track)
+                    Text(modelLabels.joinToString(" · "), color = Accent, fontSize = TypeSize.body)
+                    Text("根据已播放的两个片段推测，供参考。", color = Muted, fontSize = TypeSize.caption)
+                    TextAction("移除此首的模型标签", {
+                        ModelGenres.save(context, library.accountScope, song, emptyList())
+                    }, Muted)
                 }
                 library.genres[song.mid]?.descriptors?.takeIf {it.isNotEmpty()}?.let {labels ->
                     Text("听感线索 · 曲库标注",fontSize=TypeSize.track)

@@ -29,7 +29,14 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 
@@ -38,7 +45,9 @@ data class PlayerStatus(val mid: String = "", val playing: Boolean = false, val 
                         val message: String = "选一首歌，开启今天的共鸣。", val excerpt: Boolean = false,
                         val playRequested: Boolean = false, val directionNotice:DirectionNotice?=null,
                         val playbackMode:String=PlaybackMode.SEQUENTIAL.name,val queueSize:Int=0,
-                        val playbackRange:String=PlaybackRange.LIBRARY.name,val listeningTimeMs:Long=0)
+                        val playbackRange:String=PlaybackRange.LIBRARY.name,val listeningTimeMs:Long=0,
+                        val audioMeasurement: PlaybackAudioMeasurement? = null,
+                        val modelGenreStatus: String = "")
 object PlaybackStateBus {
     var value = PlayerStatus()
         private set
@@ -82,6 +91,14 @@ class ResonancePlaybackService : MediaSessionService() {
     private lateinit var database: StandaloneDatabaseProvider
     private val handler = Handler(Looper.getMainLooper())
     private val tracker = DirectListeningTracker()
+    private val audioProbe = PlaybackAudioProbe()
+    private val playbackSettings by lazy { getSharedPreferences("resonance_settings", MODE_PRIVATE) }
+    private var audioProbeEnabled = false
+    private val modelScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var modelJob: Job? = null
+    private var genreModel: File? = null
+    private var modelRetryAt = 0L
+    private var modelGenreStatus = ""
     private var nextTransition = TrackTransition.OTHER
     private var message = "选一首歌，开启今天的共鸣。"
     private var excerpt = false
@@ -133,6 +150,64 @@ class ResonancePlaybackService : MediaSessionService() {
         adjustRangeQueue()
     }
     private fun selectedRange()=PlaybackRange.parse(getSharedPreferences("resonance_settings",MODE_PRIVATE).getString("qq_playback_range",PlaybackRange.LIBRARY.name).orEmpty())
+
+    private fun updateAudioAnalysis(mid: String) {
+        val diagnostics = BuildConfig.PLAYBACK_AUDIO_PROBE && playbackSettings.getBoolean(PlaybackAudioProbe.SETTING, false)
+        if (audioProbeEnabled != diagnostics) audioProbe.newPlayback()
+        audioProbeEnabled = diagnostics
+        val enabled = playbackSettings.getBoolean(ModelGenres.SETTING, false)
+        val song = if (enabled && mid.isNotBlank()) QqLibrary.track(mid) else null
+        val scope = historyScope
+        val model = genreModel
+        val canAnalyze = song != null && scope.isNotBlank() && QqLibrary.state.accountScope == scope &&
+            QqLibrary.state.genres[mid]?.labels.orEmpty().size < 2 && !ModelGenres.analyzed(this, scope, song)
+        val canSample = QqSessionManager.active != null && player.isPlaying && !excerpt && player.duration >= 55_000
+        val ready = model != null && canAnalyze
+        audioProbe.updateActive(canSample && (diagnostics || ready), ready)
+
+        if (!enabled) {
+            modelGenreStatus = ""
+            return
+        }
+        if (modelJob?.isActive == true) return
+        if (model == null) {
+            if (SystemClock.elapsedRealtime() < modelRetryAt) return
+            modelGenreStatus = "正在准备声音模型…"
+            modelJob = modelScope.launch {
+                try {
+                    genreModel = withContext(Dispatchers.IO) { ModelGenres.ensureModel(noBackupFilesDir) }
+                    modelGenreStatus = "声音模型已就绪"
+                } catch (error: IOException) {
+                    modelRetryAt = SystemClock.elapsedRealtime() + 60_000
+                    modelGenreStatus = "模型下载暂未完成，稍后重试"
+                }
+            }
+            return
+        }
+        if (modelGenreStatus.isBlank()) modelGenreStatus = "声音模型已就绪"
+        if (!canAnalyze || player.currentPosition < 55_000) return
+        val clips = audioProbe.takeGenreAudio() ?: return
+        modelGenreStatus = "正在识别这首歌的曲风…"
+        modelJob = modelScope.launch {
+            val labels = withContext(Dispatchers.Default) {
+                try {
+                    ModelGenres.classify(model, clips)
+                } catch (_: RuntimeException) {
+                    null
+                } catch (_: LinkageError) {
+                    null
+                }
+            }
+            if (!playbackSettings.getBoolean(ModelGenres.SETTING, false) || QqLibrary.state.accountScope != scope ||
+                QqSessionManager.active?.let { CatalogueStore.scope(it.userId) } != scope) return@launch
+            if (labels == null) {
+                modelGenreStatus = "这台手机暂时无法使用声音模型"
+            } else {
+                ModelGenres.save(this@ResonancePlaybackService, scope, song, labels)
+                modelGenreStatus = if (labels.isEmpty()) "这首歌的两段曲风判断不一致" else "已补充模型推测，可在歌曲详情查看"
+            }
+        }
+    }
     private fun adjustRangeQueue() {
         if(player.mediaItemCount==0)return
         val current=player.currentMediaItem?.mediaId.orEmpty().removePrefix("qq:")
@@ -169,6 +244,7 @@ class ResonancePlaybackService : MediaSessionService() {
             }
             if (current == null && player.mediaItemCount > 0) { noticeGate.cancel();pendingDirection=null;directionNotice=null;player.stop(); player.clearMediaItems(); message = "账号已退出，播放已停止。" }
             val mid = player.currentMediaItem?.mediaId.orEmpty().removePrefix("qq:")
+            updateAudioAnalysis(mid)
             applyScoreReset()
             if(lastRange!=selectedRange() || lastIntent!=QqLibrary.state.intent)adjustRangeQueue()
             refreshPreferenceShuffle()
@@ -191,7 +267,8 @@ class ResonancePlaybackService : MediaSessionService() {
             PlaybackStateBus.publish(PlayerStatus(mid, player.isPlaying, player.playbackState == Player.STATE_BUFFERING,
                 player.currentPosition.coerceAtLeast(0), QqLibrary.track(mid)?.durationMs ?: 0, tracker.fastSkips, message, excerpt, player.playWhenReady,
                 directionNotice?.takeIf {SystemClock.elapsedRealtime()-it.createdAt<3500},
-                PlaybackMode.fromPlayer(player.repeatMode,player.shuffleModeEnabled).name,player.mediaItemCount,selectedRange().name,listeningTime.totalMs))
+                PlaybackMode.fromPlayer(player.repeatMode,player.shuffleModeEnabled).name,player.mediaItemCount,selectedRange().name,listeningTime.totalMs,
+                if (audioProbeEnabled) audioProbe.snapshot() else null, modelGenreStatus))
             handler.postDelayed(this, 1000)
         }
     }
@@ -210,7 +287,8 @@ class ResonancePlaybackService : MediaSessionService() {
         }
         val dataSource = CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory(upstream)
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-        player = ExoPlayer.Builder(this).setMediaSourceFactory(DefaultMediaSourceFactory(dataSource))
+        val builder = ExoPlayer.Builder(this, AudioProbeRenderers(this, audioProbe))
+        player = builder.setMediaSourceFactory(DefaultMediaSourceFactory(dataSource))
             .setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(15000, 30000, 1500, 3000).build())
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             .setHandleAudioBecomingNoisy(true).setWakeMode(C.WAKE_MODE_LOCAL).build()
@@ -222,13 +300,19 @@ class ResonancePlaybackService : MediaSessionService() {
                 .putString("qq_playback_mode",PlaybackMode.fromPlayer(player.repeatMode,player.shuffleModeEnabled).name).apply();adjustRangeQueue()}
             override fun onRepeatModeChanged(repeatMode:Int){saveMode()}
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled:Boolean){saveMode();if(shuffleModeEnabled){preferenceShuffle.reset();shuffleKey=null;refreshPreferenceShuffle()}}
-            override fun onIsPlayingChanged(isPlaying: Boolean) { tracker.tick(SystemClock.elapsedRealtime(), isPlaying);tickListeningTime(isPlaying) }
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (!isPlaying) audioProbe.updateActive(false)
+                tracker.tick(SystemClock.elapsedRealtime(), isPlaying)
+                tickListeningTime(isPlaying)
+            }
             override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
                 if (reason == Player.DISCONTINUITY_REASON_SEEK || reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) {
+                    audioProbe.newPlayback()
                     noticeGate.resetProgress()
                 }
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                audioProbe.newPlayback()
                 val mid = mediaItem?.mediaId?.removePrefix("qq:")
                 if(mid!=null)preferenceShuffle.visit(mid,previousRequested && reason==Player.MEDIA_ITEM_TRANSITION_REASON_SEEK)
                 previousRequested=false
@@ -312,6 +396,7 @@ class ResonancePlaybackService : MediaSessionService() {
                 }
             }
             override fun onPlayerError(error: PlaybackException) {
+                audioProbe.newPlayback()
                 noticeGate.cancel()
                 pendingDirection?.let { id ->
                     val detail = generateSequence<Throwable>(error) { it.cause }.filterIsInstance<QqAudioResolutionException>()
@@ -392,6 +477,7 @@ class ResonancePlaybackService : MediaSessionService() {
     }
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
     override fun onDestroy() {
+        modelScope.cancel()
         handler.removeCallbacksAndMessages(null)
         tickListeningTime(false,true)
         pendingDirection?.let {QqLibrary.updateDirection(it,"UNCONFIRMED","播放服务已停止，未确认目标播放。")};pendingDirection=null;noticeGate.cancel()

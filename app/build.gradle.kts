@@ -22,10 +22,11 @@ android {
         applicationId = if (previewBuild) "com.resonance.app.preview" else "com.resonance.app"
         manifestPlaceholders["appLabel"] = if (previewBuild) "Resonance 预览版" else "Resonance"
         manifestPlaceholders["listenerLabel"] = if (previewBuild) "Resonance 预览版媒体监听" else "Resonance 媒体监听"
+        buildConfigField("boolean", "PLAYBACK_AUDIO_PROBE", previewBuild.toString())
         minSdk = 26
         targetSdk = 35
-        versionCode = 28
-        versionName = "0.15.11"
+        versionCode = 29
+        versionName = "0.15.12"
     }
     buildTypes {
         release {
@@ -81,6 +82,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.media3:media3-exoplayer:1.6.1")
     implementation("androidx.media3:media3-session:1.6.1")
+    implementation("com.google.ai.edge.litert:litert:1.4.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

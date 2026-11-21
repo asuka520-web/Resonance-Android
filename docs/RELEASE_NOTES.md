@@ -1,3 +1,10 @@
+## Android v0.15.12 · 手机端曲风推测
+
+- 在「我的」可开启「自动识别曲风」。首次下载约 4 MB 的官方 YAMNet 模型，之后用手机本机分析正在播放的音频。
+- 优先分析缺曲风或只有一个曲风的歌曲。第 15–30 秒与第 40–55 秒的判断相符时，在「歌曲详情」显示「模型推测」，可移除。QQ 标签、标签分数和自动换向使用原有资料。
+- 普通版沿用原包名和签名，可覆盖更新。
+- 手机试用使用 Google YAMNet（Apache 2.0）和 AudioSet 类别（CC BY 4.0）。[模型及许可](https://www.kaggle.com/models/google/yamnet) · [AudioSet 类别](https://research.google.com/audioset/download.html)
+
 ## Android v0.15.11 · 换向与发现
 
 - 四次快跳后，「最近换向记录」会写明无候选、只有试听或加载失败的原因。换一批时优先选择与刚跳过的歌差异较大的候选。
