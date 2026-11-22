@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const crypto = require('node:crypto');
 const {performance} = require('node:perf_hooks');
 const MODEL_SHA256 = '49668ffec47e52e94b96f45930bb46a28a1368d4bdfb5c05378fa834aca616e1';
+const DISCOGS_SHA256 = 'a280825b334797cf677939db8cd5762c0392aedd0ca6415dbc1cd083f045e43c';
 
 const MODEL_SAMPLE_RATE = 16000;
 const RHYTHM_SAMPLE_RATE = 44100;
@@ -93,7 +94,26 @@ function measureRhythm(signal) {
   }
 }
 
-async function analyze(signal, modelPath, metadataPath, synthetic=false) {
+function musicnnInput(signal, framesPerPatch, patchHop, Tensor) {
+  const {EssentiaWASM, EssentiaModel} = require('essentia.js');
+  const extractor = new EssentiaModel.EssentiaTFInputExtractor(EssentiaWASM, 'musicnn');
+  try {
+    const feature = extractor.computeFrameWise(signal, 256);
+    const count = Math.floor((feature.frameSize - framesPerPatch) / patchHop) + 1;
+    if (count <= 0) throw Error('No complete model patch');
+    const flat = new Float32Array(count * framesPerPatch * 96);
+    for (let patch = 0; patch < count; patch++) {
+      for (let frame = 0; frame < framesPerPatch; frame++) {
+        flat.set(feature.melSpectrum[patch * patchHop + frame], (patch * framesPerPatch + frame) * 96);
+      }
+    }
+    return new Tensor('float32', flat, [count, framesPerPatch, 96]);
+  } finally {
+    extractor.delete();
+  }
+}
+
+async function analyze(signal, modelPath, metadataPath, synthetic=false, includeEmbedding=false) {
   if(signal.length<48000 || signal.length>480000) throw Error('Use a 3–30 second clip');
   const rms=Math.sqrt(signal.reduce((s,x)=>s+x*x,0)/signal.length);
   const identity={source:'audio-model-prediction',verified:false,updatesCatalogue:false,sampleKind:synthetic?'synthetic-smoke':'local-wav',seconds:signal.length/16000};
@@ -104,36 +124,58 @@ async function analyze(signal, modelPath, metadataPath, synthetic=false) {
   if(crypto.createHash('sha256').update(metadataBytes).digest('hex')!=='8e6b3b509f0610c0e65dce467fd459d6777509388eaddb13ed138d8ac1341ffe')throw Error('Model metadata checksum mismatch');
   const metadata=JSON.parse(metadataBytes.toString('utf8'));
   if(metadata.classes?.length!==50)throw Error('Unexpected model metadata');
-  const {EssentiaWASM,EssentiaModel}=require('essentia.js');
   const ort=require('onnxruntime-node');
   const start=performance.now();
-  const extractor=new EssentiaModel.EssentiaTFInputExtractor(EssentiaWASM,'musicnn');
-  const feature=extractor.computeFrameWise(signal,256);
-  const patches=[];
-  for(let frame=0;frame+187<=feature.frameSize;frame+=93) {
-    const patch=new Float32Array(187*96);
-    for(let j=0;j<187;j++)patch.set(feature.melSpectrum[frame+j],j*96);
-    patches.push(patch);
-  }
-  extractor.delete();
-  if(!patches.length)throw Error('No complete model patch');
+  const input = musicnnInput(signal, 187, 93, ort.Tensor);
+  const [patchCount] = input.dims;
   const frontendMs=performance.now()-start;
-  const flat=new Float32Array(patches.length*187*96);
-  patches.forEach((p,i)=>flat.set(p,i*187*96));
   const loadStart=performance.now();
   const session=await ort.InferenceSession.create(model,{executionProviders:['cpu'],intraOpNumThreads:2});
   const loadMs=performance.now()-loadStart;
   const inferenceStart=performance.now();
-  const result=await session.run({melspectrogram:new ort.Tensor('float32',flat,[patches.length,187,96])});
-  const scores=result.activations;
-  if(scores.dims[1]!==50 || [...scores.data].some(x=>!Number.isFinite(x)))throw Error('Invalid model result');
-  const averages=metadata.classes.map((tag,index)=>({tag,modelScore:patches.reduce((sum,_,p)=>sum+scores.data[p*50+index],0)/patches.length}));
-  const predictions=averages.sort((a,b)=>b.modelScore-a.modelScore).slice(0,10);
-  const report={...identity,status:synthetic?'technical_smoke_only':'experimental_predictions',model:'msd-musicnn-1',modelSha256:hash,
-    modelLicense:'CC BY-NC-SA 4.0',patches:patches.length,frontendMs,loadMs,inferenceMs:performance.now()-inferenceStart,predictions,
-    limitations:['Scores are uncalibrated model activations, not accuracy or verified genres.','This model mixes genre, mood, instrument, era and voice tags.','No Chinese-song accuracy or Android battery/latency claim has been validated.']};
-  await session.release();
-  return report;
+  try {
+    const result=await session.run({melspectrogram:input});
+    const modelScores = meanPatches(result.activations, patchCount, 50);
+    const averages=metadata.classes.map((tag,index)=>({tag,modelScore:modelScores[index]}));
+    const predictions=averages.sort((a,b)=>b.modelScore-a.modelScore).slice(0,10);
+    const report={...identity,status:synthetic?'technical_smoke_only':'experimental_predictions',model:'msd-musicnn-1',modelSha256:hash,
+      modelLicense:'CC BY-NC-SA 4.0',patches:patchCount,frontendMs,loadMs,inferenceMs:performance.now()-inferenceStart,predictions,
+      limitations:['Scores are uncalibrated model activations, not accuracy or verified genres.','This model mixes genre, mood, instrument, era and voice tags.','No Chinese-song accuracy or Android battery/latency claim has been validated.']};
+    if (includeEmbedding) report.embedding = meanPatches(result.embeddings, patchCount, 200);
+    return report;
+  } finally {
+    await session.release();
+  }
+}
+
+function meanPatches(output, expectedRows, expectedWidth) {
+  const {data, dims} = output;
+  const [rows, width] = dims;
+  if (rows !== expectedRows || width !== expectedWidth || !data.every(Number.isFinite)) throw Error('Invalid model output');
+  const result = Array(width).fill(0);
+  for (let row = 0; row < rows; row++) {
+    for (let index = 0; index < width; index++) result[index] += data[row * width + index];
+  }
+  return result.map(value => value / rows);
+}
+
+async function openDiscogsEmbedder(modelPath) {
+  const model = fs.readFileSync(modelPath);
+  if (crypto.createHash('sha256').update(model).digest('hex') !== DISCOGS_SHA256) throw Error('Discogs model checksum mismatch');
+  const {InferenceSession, Tensor} = require('onnxruntime-node');
+  const session = await InferenceSession.create(model, {executionProviders: ['cpu'], intraOpNumThreads: 2});
+  return {
+    async extract(signal, includeStyles = false) {
+      if (!signal.some(value => Math.abs(value) >= 0.0001)) return null;
+      const input = musicnnInput(signal, 128, 62, Tensor);
+      const {embeddings, activations} = await session.run({melspectrogram: input});
+      return {
+        embedding: meanPatches(embeddings, input.dims[0], 1280),
+        styles: includeStyles ? meanPatches(activations, input.dims[0], 400) : null
+      };
+    },
+    close: () => session.release()
+  };
 }
 
 async function main() {
@@ -158,5 +200,5 @@ async function main() {
   if(output)fs.writeFileSync(output,JSON.stringify(report,null,2));
   process.stdout.write(JSON.stringify(report,null,2)+'\n');
 }
-module.exports={decodeWav,analyze,measureRhythm,assessTempo,summarizeTrackTempo};
+module.exports={decodeWav,analyze,measureRhythm,assessTempo,summarizeTrackTempo,openDiscogsEmbedder};
 if(require.main===module)main().catch(error=>{process.stderr.write(error.message+'\n');process.exitCode=1;});

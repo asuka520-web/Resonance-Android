@@ -2,6 +2,8 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const {decodeWav,analyze,measureRhythm,assessTempo,summarizeTrackTempo}=require('./probe.cjs');
+const {evaluateGenrePrototypes}=require('./similarity-pilot.cjs');
+const {fitPairs,proposeGenres}=require('./train-clips.cjs');
 function wav(rate=16000) {
   const dataBytes = 3 * rate * 2;
   const b=Buffer.alloc(44+dataBytes);
@@ -50,4 +52,32 @@ test('a second excerpt can support one candidate, but two ambiguous excerpts sta
   assert.equal(summarizeTrackTempo(confirmed, split), 135.5);
   assert.equal(summarizeTrackTempo(split, split), null);
   assert.equal(summarizeTrackTempo(confirmed, assessTempo(90, 90)), null);
+});
+
+test('the pilot fits genre prototypes with every song by the test artist held out', () => {
+  const sample = (artist, tag, sound) => ({artist, tag, sound});
+  const result = evaluateGenrePrototypes([
+    sample('a', 'folk', [1, 0, 0]), sample('b', 'folk', [1, 0, 0]),
+    sample('c', 'rock', [0, 1, 0]), sample('d', 'rock', [0, 1, 0]),
+    sample('e', 'only-from-e', [0, 0, 1]), sample('e', 'only-from-e', [0, 0, 1])
+  ]);
+  assert.equal(result.tested, 4);
+  assert.equal(result.audioHits, 4);
+  assert.equal(result.noTrainingExamples, 2);
+});
+
+test('the ranking model learns which signal distinguishes matching styles', () => {
+  const fit = fitPairs([
+    {same: true, features: [0.8, 0.3]}, {same: true, features: [0.8, 0.6]},
+    {same: false, features: [0.2, 0.3]}, {same: false, features: [0.2, 0.6]}
+  ]);
+  assert.ok(fit.weights[0] > 1);
+  assert.ok(Math.abs(fit.weights[1]) < 0.01);
+});
+
+test('song-level style suggestions require agreement across excerpts', () => {
+  const labels = ['Rock---Indie', 'Pop---Ballad', 'Jazz---Swing', 'Non-Music---Speech'];
+  const scores = [[0.9, 0.7, 0, 1], [0, 0.8, 0.9, 1]];
+  assert.deepEqual(proposeGenres(labels, scores), [{family: 'Pop', style: 'Ballad', score: 0.75}]);
+  assert.deepEqual(proposeGenres(labels, [[0.9, 0, 0, 0], [0, 0.5, 0, 0]]), []);
 });

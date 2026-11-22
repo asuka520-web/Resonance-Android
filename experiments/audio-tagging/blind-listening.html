@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>共鸣 · 外语歌盲听</title>
+<style>
+  :root { color-scheme: dark; font: 100%/1.6 system-ui, sans-serif; background: #141a21; color: #edf1f4; }
+  body { max-width: 70ch; margin: 2rem auto; padding: 0 1rem 3rem; }
+  h1, h2 { line-height: 1.2; }
+  article, details { border-top: 1px solid #475261; padding: 1rem 0; }
+  audio { display: block; width: min(100%, 28rem); margin: .25rem 0 .75rem; }
+  label { display: inline-flex; align-items: center; gap: .4rem; margin-right: .5rem; min-height: 3rem; }
+  button { font: inherit; min-height: 3rem; padding: 0 1rem; }
+  summary { cursor: pointer; }
+  a { color: #aed3ef; }
+  .toolbar { position: sticky; top: 0; padding: .5rem 0; background: #141a21; }
+  .toolbar p { margin: .25rem 0 0; }
+</style>
+</head>
+<body>
+<h1 id="heading">共鸣 · 外语歌盲听</h1>
+<p id="instructions">先听参考片段，再听 A 和 B。按实际听感选择。相似推荐选听起来更像的歌，换向选能明显换一种风格的歌。</p>
+<form id="ballot"></form>
+<div id="actions">
+  <button id="save" type="button">保存听感结果</button>
+  <p id="status" role="status"></p>
+</div>
+<details><summary>曲目来源与许可（听完可展开）</summary><ul id="credits"></ul></details>
+<script>
+  /*__PILOT_DATA__*/
+  const tracks = new Map(pilot.catalogue.map(track => [track.id, track]));
+  const ballot = document.querySelector('#ballot');
+  if (pilot.header) document.querySelector('#heading').textContent = document.title = pilot.header;
+  if (pilot.instructions) document.querySelector('#instructions').textContent = pilot.instructions;
+  const storageKey = pilot.instructions && 'resonance-blind-listening-' + pilot.model;
+  let saved = {};
+  if (storageKey) {
+    try { saved = JSON.parse(localStorage.getItem(storageKey)) || {}; } catch {}
+  }
+
+  function append(parent, tag, label) {
+    const element = document.createElement(tag);
+    if (label) element.textContent = label;
+    parent.append(element);
+    return element;
+  }
+
+  function audio(parent, label, id) {
+    append(parent, 'div', label);
+    const player = append(parent, 'audio');
+    player.controls = true;
+    player.preload = 'none';
+    player.src = tracks.get(id).listen;
+    player.setAttribute('aria-label', label);
+    player.addEventListener('play', () => {
+      for (const other of document.querySelectorAll('audio')) if (other !== player) other.pause();
+    });
+  }
+
+  const credits = new Set();
+  for (const item of pilot.cases) {
+    const row = append(ballot, 'article');
+    const isSimilar = item.kind === 'similar';
+    append(row, 'h2', item.id + '. ' + (isSimilar ? '哪首听起来更像？' : '哪首更像换了风格？'));
+    item.anchors.forEach((id, index) => audio(row, item.anchors.length === 1 ? '参考歌曲' : '刚跳过的第 ' + (index + 1) + ' 首', id));
+    audio(row, '候选 A', item.a);
+    audio(row, '候选 B', item.b);
+    const answers = {a: 'A', b: 'B', tie: '差不多'};
+    if (!isSimilar) answers.mixed = '这四首本来就很杂';
+    for (const [value, label] of Object.entries(answers)) {
+      const option = append(row, 'label');
+      const input = append(option, 'input');
+      input.type = 'radio';
+      input.name = String(item.id);
+      input.value = value;
+      input.checked = saved[item.id] === value;
+      option.append(label);
+    }
+    for (const id of [...item.anchors, item.a, item.b]) credits.add(id);
+  }
+
+  for (const id of credits) {
+    const track = tracks.get(id);
+    const credit = append(document.querySelector('#credits'), 'li');
+    const link = append(credit, 'a', track.artist + ' — ' + track.title);
+    link.href = track.url;
+    credit.append(' · ' + track.license);
+  }
+
+  const status = document.querySelector('#status');
+  if (storageKey) {
+    const actions = document.querySelector('#actions');
+    actions.className = 'toolbar';
+    ballot.before(actions);
+    const update = () => {
+      const answers = Object.fromEntries(new FormData(ballot));
+      try { localStorage.setItem(storageKey, JSON.stringify(answers)); } catch {}
+      status.textContent = '已答 ' + Object.keys(answers).length + ' / ' + pilot.cases.length + ' 题。';
+    };
+    ballot.addEventListener('change', update);
+    update();
+  }
+
+  document.querySelector('#save').addEventListener('click', () => {
+    const form = new FormData(ballot);
+    const votes = pilot.cases.filter(item => form.has(String(item.id))).map(item => ({
+      id: item.id, kind: item.kind, choice: form.get(String(item.id)), audioOption: item.audioOption
+    }));
+    if (!votes.length) { status.textContent = '先选至少一道题。'; return; }
+    const url = URL.createObjectURL(new Blob([JSON.stringify({model: pilot.model, votes}, null, 2)], {type: 'application/json'}));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'resonance-listening-votes.json';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    status.textContent = '已保存 ' + votes.length + ' 道题的答案，可以继续答。';
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>共鸣 · 英语歌曲风抽查</title>
+<style>
+  :root { color-scheme: dark; background: #141a21; color: #edf1f4; font: 100%/1.6 system-ui, sans-serif; }
+  body { max-width: 70ch; margin: 2rem auto; padding: 0 1rem 3rem; }
+  article { border-top: 1px solid #475261; padding: 1rem 0; }
+  h2, p { margin: 0 0 .5rem; }
+  audio { display: block; margin: 0 0 .5rem; width: min(100%, 28rem); }
+  label { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin: .5rem 0; max-width: 36rem; }
+  select, button { font: inherit; min-height: 3rem; padding: 0 .5rem; }
+  .toolbar { position: sticky; top: 0; padding: .5rem 0; background: #141a21; }
+  a { color: #aed3ef; }
+</style>
+</head>
+<body>
+<h1>共鸣 · 英语歌曲风抽查</h1>
+<p>先听两个片段，再判断每个候选标签。贴合就选「合理」，拿不准就选「不确定」。可以分批判断，再保存结果。</p>
+<div class="toolbar">
+  <p id="progress" role="status"></p>
+  <button id="save" type="button">保存曲风抽查结果</button>
+</div>
+<form id="review"></form>
+<script>
+  /*__REVIEW_DATA__*/
+  const form = document.querySelector('#review');
+  const progress = document.querySelector('#progress');
+  const storageKey = 'resonance-genre-review-' + pilot.evaluation;
+  const judgments = {yes: '合理', no: '不合适', unsure: '不确定'};
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(storageKey)) || {}; } catch {}
+
+  function append(parent, tag, text) {
+    const node = document.createElement(tag);
+    if (text) node.textContent = text;
+    parent.append(node);
+    return node;
+  }
+
+  for (const [index, track] of pilot.review.entries()) {
+    const row = append(form, 'article');
+    append(row, 'h2', (index + 1) + '. ' + track.title + ' · ' + track.artist);
+    const details = append(row, 'details');
+    append(details, 'summary', '曲库分类与来源');
+    const credit = append(details, 'p', track.tag + ' · ');
+    append(credit, 'a', '原曲与许可').href = track.url;
+    credit.append(' · ' + track.license);
+    track.clips.forEach((clip, index) => {
+      const label = index === 0 ? '第 15–30 秒' : '第 40–55 秒';
+      append(row, 'div', label);
+      const player = append(row, 'audio');
+      player.controls = true;
+      player.preload = 'none';
+      player.src = clip;
+      player.setAttribute('aria-label', label);
+      player.addEventListener('play', () => {
+        for (const other of form.querySelectorAll('audio')) if (other !== player && !other.paused) other.pause();
+      });
+    });
+    if (!track.suggestions.length) append(row, 'p', '两个片段没有给出一致的曲风。');
+    for (const tag of track.suggestions) {
+      const field = append(append(row, 'label', tag.family + ' · ' + tag.style), 'select');
+      field.name = track.id + '/' + tag.family + '/' + tag.style;
+      append(field, 'option', '待判断').value = '';
+      for (const [key, text] of Object.entries(judgments)) append(field, 'option', text).value = key;
+      if (Object.hasOwn(judgments, saved[field.name])) field.value = saved[field.name];
+    }
+  }
+
+  function answers() {
+    return Object.fromEntries([...new FormData(form)].filter(([, answer]) => answer));
+  }
+
+  function update() {
+    const reviewed = Object.values(answers());
+    const accepted = reviewed.filter(answer => answer === 'yes').length;
+    progress.textContent = '已判断 ' + reviewed.length + ' / ' + pilot.counts.labelsToReview + ' 个标签，' + accepted + ' 个合理。';
+  }
+
+  form.addEventListener('change', () => {
+    try { localStorage.setItem(storageKey, JSON.stringify(answers())); } catch {}
+    update();
+  });
+  document.querySelector('#save').addEventListener('click', () => {
+    const results = answers();
+    if (!Object.keys(results).length) {
+      progress.textContent = '先判断至少一个标签。';
+      return;
+    }
+    const data = {evaluation: pilot.evaluation, counts: pilot.counts, judgments: results};
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'}));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'resonance-genre-review.json';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    update();
+  });
+  update();
+</script>
+</body>
+</html>
