@@ -94,18 +94,26 @@ class PlaybackModesTest {
         val player=ExoPlayer.Builder(context).build()
         try {
             player.setMediaItems((0..2).map {MediaItem.Builder().setMediaId("song$it").setUri("asset:///test$it.mp3").build()},1,0)
-            player.repeatMode=Player.REPEAT_MODE_ONE
+            PlaybackMode.SINGLE.applyTo(player)
+            assertEquals(Player.REPEAT_MODE_ONE, player.repeatMode)
             player.seekToNextMediaItem()
             assertEquals("song2",player.currentMediaItem!!.mediaId)
             player.seekToPreviousMediaItem()
             assertEquals("song1",player.currentMediaItem!!.mediaId)
-            player.repeatMode=Player.REPEAT_MODE_ALL;player.shuffleModeEnabled=true
+            PlaybackMode.LOOP.applyTo(player)
+            assertEquals(Player.REPEAT_MODE_ALL, player.repeatMode)
+            assertFalse(player.shuffleModeEnabled)
+            PlaybackMode.SHUFFLE.applyTo(player)
             val original=player.currentMediaItem!!.mediaId
             player.seekToNextMediaItem()
             assertNotEquals(original,player.currentMediaItem!!.mediaId)
             player.seekToPreviousMediaItem()
             assertEquals(original,player.currentMediaItem!!.mediaId)
             assertEquals(PlaybackMode.SHUFFLE,PlaybackMode.fromPlayer(player.repeatMode,player.shuffleModeEnabled))
+            PlaybackMode.SHUFFLE.next().applyTo(player)
+            assertEquals(Player.REPEAT_MODE_ONE, player.repeatMode)
+            assertFalse(player.shuffleModeEnabled)
+            assertEquals(original, player.currentMediaItem!!.mediaId)
         } finally {player.release()}
     }
 }

@@ -40,6 +40,32 @@ class DirectionSelectionTest {
         assertEquals(listOf("qq:fresh", "qq:familiar"), plan.picks.map { it.track.mediaId })
     }
 
+    @Test fun sharedStyleAcrossAllSkipsOutvotesARarerThreeTrackTag() {
+        val skipped = (1..3).map { track("s$it", "indie rock") } + track("s4", "rock")
+        val plan = planDirection(LibraryState(listening = events(skipped)),
+            skipped + listOf(track("still-rock", "alternative rock"), track("different", "folk")),
+            "qq:current", PlaybackRange.LIBRARY)
+
+        assertEquals(setOf("rock"), plan.rejectedGenres)
+        assertEquals(listOf("qq:different"), plan.picks.map { it.track.mediaId })
+    }
+
+    @Test fun anotherFamilyLeadsAndANearbyOnlyCandidateIsTentative() {
+        val skipped = (1..4).map { track("s$it", "alternative rock") }
+        val sibling = track("indie", "indie rock")
+        val distant = track("soul", "soul")
+        val favorite = QqCatalogueTrack("indie", "indie", "收藏", "歌手", "", 200000)
+        val state = LibraryState(favorites = listOf(favorite), listening = events(skipped))
+
+        val plan = planDirection(state, skipped + listOf(sibling, distant), "qq:current", PlaybackRange.LIBRARY)
+        assertEquals("GENRE", plan.directionKind)
+        assertEquals(listOf("qq:soul", "qq:indie"), plan.picks.map { it.track.mediaId })
+
+        val withinFamily = planDirection(state, skipped + sibling, "qq:current", PlaybackRange.LIBRARY)
+        assertEquals("GENRE_HINT", withinFamily.directionKind)
+        assertEquals("qq:indie", withinFamily.picks.single().track.mediaId)
+    }
+
     @Test fun tenAttemptsNeverReuseTargetsEvenWhenTheyNeverEnterListeningEvents() {
         val skipped = (1..4).map {track("s$it")}
         val candidates = (1..12).map {track("choice$it", "folk")}

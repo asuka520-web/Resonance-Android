@@ -313,8 +313,7 @@ class ResonancePlaybackService : MediaSessionService() {
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             .setHandleAudioBecomingNoisy(true).setWakeMode(C.WAKE_MODE_LOCAL).build()
         val savedMode=PlaybackMode.parse(getSharedPreferences("resonance_settings",MODE_PRIVATE).getString("qq_playback_mode",PlaybackMode.SEQUENTIAL.name).orEmpty())
-        player.shuffleModeEnabled=savedMode==PlaybackMode.SHUFFLE
-        player.repeatMode=when(savedMode){PlaybackMode.SINGLE->Player.REPEAT_MODE_ONE;PlaybackMode.LOOP,PlaybackMode.SHUFFLE->Player.REPEAT_MODE_ALL;else->Player.REPEAT_MODE_OFF}
+        savedMode.applyTo(player)
         player.addListener(object : Player.Listener {
             private fun saveMode(){getSharedPreferences("resonance_settings",MODE_PRIVATE).edit()
                 .putString("qq_playback_mode",PlaybackMode.fromPlayer(player.repeatMode,player.shuffleModeEnabled).name).apply();adjustRangeQueue()}

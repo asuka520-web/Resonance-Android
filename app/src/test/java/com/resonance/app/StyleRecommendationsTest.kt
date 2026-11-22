@@ -52,6 +52,25 @@ class StyleRecommendationsTest {
         assertEquals("close", StyleRecommendations.similar("a", tracks, emptyList()).picks.first().track.mediaId)
     }
 
+    @Test fun subgenreMatchLeadsEvenWhenABroadMatchIsAFavorite() {
+        val tracks = listOf(song("anchor", "pop", "alternative r&b"), song("familiar", "pop"),
+            song("closer", "contemporary r&b"))
+        val history = List(12) { ListeningSignal("familiar", "completed") }
+
+        val plan = StyleRecommendations.similar("anchor", tracks, history)
+
+        assertEquals(listOf("closer", "familiar"), plan.picks.map { it.track.mediaId })
+        assertTrue(plan.picks.first().reason.contains("r&b"))
+        assertTrue(plan.picks.first().unfamiliar)
+    }
+
+    @Test fun aRecentlyRejectedRecordingDoesNotReturnUnderAnotherTrackId() {
+        val tracks = listOf(song("anchor", "pop"), song("skipped", "pop", recording = "same"),
+            song("another-edition", "pop", recording = "same"), song("different", "pop"))
+        val plan = StyleRecommendations.similar("anchor", tracks, listOf(ListeningSignal("skipped", "fast")))
+        assertEquals(listOf("different"), plan.picks.map { it.track.mediaId })
+    }
+
     @Test fun usesSevenThreeMixWhenEnoughActualCandidatesExist() {
         val tracks = listOf(song("anchor", "pop")) + (1..14).map { song("known$it", "pop") } +
             (1..6).map { song("new$it", "pop") }

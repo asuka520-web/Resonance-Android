@@ -452,9 +452,14 @@ internal fun Dock(
                     }
                 }
                 val mode = PlaybackMode.parse(player.playbackMode)
-                val modeColor = if (mode == PlaybackMode.SHUFFLE) ResonancePalette.signal else ResonancePalette.muted
+                val modeColor = if (mode == PlaybackMode.SEQUENTIAL) ResonancePalette.muted else ResonancePalette.signal
                 IconAction("播放模式：${mode.label}，点按切换", { onMode(mode.next().name) }, modeColor) {
-                    ShuffleGlyph(modeColor)
+                    when (mode) {
+                        PlaybackMode.SINGLE -> RepeatGlyph(modeColor, single = true)
+                        PlaybackMode.LOOP -> RepeatGlyph(modeColor, single = false)
+                        PlaybackMode.SHUFFLE -> ShuffleGlyph(modeColor)
+                        PlaybackMode.SEQUENTIAL -> ResonanceText(mode.shortLabel, TypeSize.caption, color = modeColor)
+                    }
                 }
                 val playing = player.playing || (player.loading && player.playRequested)
                 IconAction("播放或暂停", onToggle, ResonancePalette.line, outline = true) {
@@ -554,6 +559,32 @@ internal fun PlayPauseMorph(playing: Boolean, modifier: Modifier = Modifier.size
             drawPath(path, color)
         }
     }) {}
+}
+
+@Composable
+private fun RepeatGlyph(color: Color, single: Boolean) {
+    Box(Modifier.size(Space.shuffleGlyph), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.matchParentSize()) {
+            val w = size.width
+            val h = size.height
+            val arrows = Path().apply {
+                moveTo(w * .17f, h * .43f)
+                quadraticTo(w * .17f, h * .25f, w * .32f, h * .25f)
+                lineTo(w * .83f, h * .25f)
+                moveTo(w * .70f, h * .12f)
+                lineTo(w * .83f, h * .25f)
+                lineTo(w * .70f, h * .38f)
+                moveTo(w * .83f, h * .57f)
+                quadraticTo(w * .83f, h * .75f, w * .68f, h * .75f)
+                lineTo(w * .17f, h * .75f)
+                moveTo(w * .30f, h * .62f)
+                lineTo(w * .17f, h * .75f)
+                lineTo(w * .30f, h * .88f)
+            }
+            drawPath(arrows, color, style = Stroke(Space.shuffleStroke.toPx(), cap = StrokeCap.Round))
+        }
+        if (single) ResonanceText("1", TypeSize.caption, color = color, weight = FontWeight.Bold, english = true)
+    }
 }
 
 @Composable

@@ -46,6 +46,9 @@ class ListeningIntentTest {
         assertEquals(PlaybackMode.SHUFFLE,PlaybackMode.fromPlayer(2,true))
         assertEquals(PlaybackMode.SINGLE,PlaybackMode.fromPlayer(1,false))
         assertEquals(PlaybackMode.LOOP,PlaybackMode.fromPlayer(2,false))
-        assertEquals(PlaybackMode.SEQUENTIAL,PlaybackMode.SINGLE.next())
+        assertEquals(PlaybackMode.SINGLE,PlaybackMode.SEQUENTIAL.next())
+        assertEquals(PlaybackMode.LOOP,PlaybackMode.SINGLE.next())
+        assertEquals(PlaybackMode.SHUFFLE,PlaybackMode.LOOP.next())
+        assertEquals(PlaybackMode.SINGLE,PlaybackMode.SHUFFLE.next())
     }
 }

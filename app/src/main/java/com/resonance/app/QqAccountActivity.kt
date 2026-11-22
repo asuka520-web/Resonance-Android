@@ -36,6 +36,7 @@ import androidx.media3.session.SessionToken
 @androidx.annotation.OptIn(UnstableApi::class)
 class QqAccountActivity : ComponentActivity() {
     private var controller: MediaController? = null
+    private var pendingPlaybackMode: PlaybackMode? = null
     private fun refreshAccount() {
         val account = QqSessionManager.refresh()
         val key = account?.let { CatalogueStore.scope(it.userId) }.orEmpty()
@@ -75,10 +76,8 @@ class QqAccountActivity : ComponentActivity() {
     private fun setPlaybackMode(name:String) {
         val mode=PlaybackMode.parse(name)
         getSharedPreferences("resonance_settings",MODE_PRIVATE).edit().putString("qq_playback_mode",mode.name).apply()
-        controller?.let {active ->
-            active.shuffleModeEnabled=mode==PlaybackMode.SHUFFLE
-            active.repeatMode=when(mode){PlaybackMode.SINGLE->Player.REPEAT_MODE_ONE;PlaybackMode.LOOP,PlaybackMode.SHUFFLE->Player.REPEAT_MODE_ALL;else->Player.REPEAT_MODE_OFF}
-        }
+        val active = controller
+        if (active != null) mode.applyTo(active) else pendingPlaybackMode = mode
         PlaybackStateBus.publish(PlaybackStateBus.value.copy(playbackMode=mode.name))
     }
     @SuppressLint("SetJavaScriptEnabled")
@@ -107,7 +106,12 @@ class QqAccountActivity : ComponentActivity() {
                 val token = SessionToken(this@QqAccountActivity, ComponentName(this@QqAccountActivity, ResonancePlaybackService::class.java))
                 val future = MediaController.Builder(this@QqAccountActivity, token).buildAsync()
                 future.addListener({
-                    runCatching { controller = future.get() }.onFailure { QqLibrary.notice("播放器暂未连接，请重新打开应用。") }
+                    runCatching {
+                        val active = future.get()
+                        controller = active
+                        pendingPlaybackMode?.let { mode -> mode.applyTo(active) }
+                        pendingPlaybackMode = null
+                    }.onFailure { QqLibrary.notice("播放器暂未连接，请重新打开应用。") }
                 }, ContextCompat.getMainExecutor(this@QqAccountActivity))
                 onDispose {
                     QqLibrary.unsubscribe(libraryListener); PlaybackStateBus.unsubscribe(playerListener)

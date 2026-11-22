@@ -21,7 +21,8 @@ class SurpriseRecommendationsTest {
     @Test fun excludesCurrentRecentListeningAndRecordingDuplicates() {
         val anchor=track("anchor",false)
         val alias=anchor.copy(mediaId="alias")
-        val pool=listOf(anchor,alias,track("skipped",false),track("heard",false),track("fine",false))
+        val pool=listOf(anchor,alias,track("skipped",false),track("heard",false),track("fine",false),
+            track("new-edition",false).copy(recordingId="skipped"))
         val events=listOf(ListeningSignal("skipped","fast"),ListeningSignal("heard","completed"))
         val plan=SurpriseRecommendations.compose(StylePlan("",""),pool,events,emptySet(),"anchor",true)
         assertEquals("fine",plan.picks.single().track.mediaId)
@@ -37,5 +38,15 @@ class SurpriseRecommendationsTest {
         val plan=SurpriseRecommendations.compose(StylePlan("惊喜一首",""),listOf(track("known")),emptyList(),emptySet(),"anchor",true)
         assertTrue(plan.picks.isEmpty())
         assertTrue(plan.rejectedGenres.isEmpty())
+    }
+
+    @Test fun aDirectQqCandidateKeepsItsReasonWhenSurpriseIsEnabled() {
+        val tracks = listOf(track("anchor"), track("related", false), track("random", false))
+        val base = StyleRecommendations.similar("anchor", tracks, emptyList(), relatedIds = setOf("related"))
+        val plan = SurpriseRecommendations.compose(base, tracks, emptyList(), emptySet(), "anchor", true, "random")
+
+        assertEquals("related", plan.picks.single().track.mediaId)
+        assertTrue(plan.picks.single().reason.contains("QQ 相关歌曲"))
+        assertFalse(plan.picks.single().surprise)
     }
 }

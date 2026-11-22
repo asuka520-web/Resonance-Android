@@ -244,12 +244,18 @@ class ResonanceScreenTest {
             {},{},{},{},{},{previousCalls++},{},{},{},{},{},onPlaybackMode={status.value=status.value.copy(playbackMode=it)})}
         compose.onNodeWithContentDescription("上一首").assertDoesNotExist()
         compose.onNodeWithContentDescription("播放模式：顺序播放，点按切换").performClick()
+        assertEquals(PlaybackMode.SINGLE.name,status.value.playbackMode)
+        compose.onNodeWithContentDescription("播放模式：单曲循环，点按切换").performClick()
         assertEquals(PlaybackMode.LOOP.name,status.value.playbackMode)
+        compose.onNodeWithContentDescription("播放模式：列表循环，点按切换").performClick()
+        assertEquals(PlaybackMode.SHUFFLE.name,status.value.playbackMode)
+        compose.onNodeWithContentDescription("播放模式：随机播放，点按切换").performClick()
+        assertEquals(PlaybackMode.SINGLE.name,status.value.playbackMode)
         compose.onAllNodesWithText("播放模式测试歌").onLast().performClick()
         compose.onNodeWithContentDescription("上一首").performScrollTo().performClick()
         assertEquals(1,previousCalls)
-        compose.onNodeWithText("单曲循环").performScrollTo().performClick()
-        assertEquals(PlaybackMode.SINGLE.name,status.value.playbackMode)
+        compose.onNodeWithText("列表循环").performScrollTo().performClick()
+        assertEquals(PlaybackMode.LOOP.name,status.value.playbackMode)
         capture("player-modes-test-data")
     }
 

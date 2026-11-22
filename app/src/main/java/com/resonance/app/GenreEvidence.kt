@@ -21,6 +21,8 @@ internal object GenreEvidence {
     fun comparable(labels: Set<String>): Set<String> = labels.map(CatalogueCodec::normalizeGenre)
         .filter {it.isNotBlank() && it !in generic}.toSet()
 
+    fun subgenres(labels: Set<String>): Set<String> = labels.filter { it in families }.toSet()
+
     fun withFamilies(labels: Set<String>): Set<String> = comparable(labels).flatMap {label ->
         families[label].orEmpty() + label
     }.toSet()

@@ -23,7 +23,7 @@ internal fun planDirection(state: LibraryState, tracks: List<StyleTrack>, curren
     val recentRecordings = tracks.filter {it.mediaId in recentIds}.map {it.recordingId}.toSet()
     val excluded = recentIds + tracks.filter {it.recordingId in recentRecordings}.map {it.mediaId}
     val candidates = tracks.filter {
-        state.intent.accepts(it.genres) && (range != PlaybackRange.FAVORITES || it.mediaId in favorites)
+        state.intent.accepts(GenreEvidence.comparable(it.genres)) && (range != PlaybackRange.FAVORITES || it.mediaId in favorites)
     }.map {it.mediaId}.toSet()
     val style = StyleRecommendations.changeDirection(
         current, tracks, events, favorites, state.intent, state.scoreSignals, state.manualScores,
